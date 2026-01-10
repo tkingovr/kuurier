@@ -78,7 +78,7 @@ func (h *Handler) GetFeed(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var posts []gin.H
+	posts := make([]gin.H, 0) // Initialize as empty slice, not nil (for JSON)
 	for rows.Next() {
 		var id, authorID, content, sourceType string
 		var lat, lon *float64

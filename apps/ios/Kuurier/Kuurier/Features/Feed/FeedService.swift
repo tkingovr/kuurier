@@ -91,7 +91,7 @@ final class FeedService: ObservableObject {
 
             print("FeedService: Creating post with content=\(content.prefix(50))..., sourceType=\(sourceType.rawValue), urgency=\(urgency)")
 
-            let response: CreatePostResponse = try await api.post("/feed", body: request)
+            let response: CreatePostResponse = try await api.post("/feed/posts", body: request)
 
             print("FeedService: Post created successfully with id=\(response.id)")
 
