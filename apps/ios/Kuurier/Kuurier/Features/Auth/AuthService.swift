@@ -91,13 +91,11 @@ final class AuthService: ObservableObject {
             // Base64 encode the public key
             let publicKeyBase64 = publicKey.base64EncodedString()
 
-            // Build request body
-            var requestBody: [String: String] = ["public_key": publicKeyBase64]
-
-            // Include invite code for new registrations
-            if !hasExistingKey, let inviteCode = inviteCode {
-                requestBody["invite_code"] = inviteCode
-            }
+            // Build request body with invite code for new registrations
+            let requestBody = RegisterRequest(
+                publicKey: publicKeyBase64,
+                inviteCode: hasExistingKey ? nil : inviteCode
+            )
 
             // Request challenge from server
             let challengeResponse: AuthChallenge = try await api.post("/auth/register", body: requestBody)
@@ -201,3 +199,9 @@ final class AuthService: ObservableObject {
 
 // Helper for empty request bodies
 private struct EmptyBody: Encodable {}
+
+// Registration request body
+private struct RegisterRequest: Encodable {
+    let publicKey: String
+    let inviteCode: String?
+}

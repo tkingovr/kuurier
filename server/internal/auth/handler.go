@@ -29,8 +29,8 @@ func NewHandler(cfg *config.Config, db *storage.Postgres) *Handler {
 
 // RegisterRequest is the request body for registration
 type RegisterRequest struct {
-	PublicKey  string `json:"public_key" binding:"required"`  // Base64 encoded Ed25519 public key
-	InviteCode string `json:"invite_code" binding:"required"` // Invite code from existing user
+	PublicKey  string `json:"public_key" binding:"required"` // Base64 encoded Ed25519 public key
+	InviteCode string `json:"invite_code"`                   // Invite code (required for new users only)
 }
 
 // RegisterResponse is the response for successful registration

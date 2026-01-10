@@ -9,6 +9,19 @@ struct InvitesView: View {
 
     var body: some View {
         List {
+            // Error display
+            if let error = inviteService.error {
+                Section {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(error)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    }
+                }
+            }
+
             // Stats section
             Section {
                 statsView
@@ -192,7 +205,7 @@ struct InviteCodeRow: View {
                 Spacer()
 
                 if invite.status == .active {
-                    Button(action: { shareInvite() }) {
+                    ShareLink(item: shareMessage) {
                         Image(systemName: "square.and.arrow.up")
                             .foregroundColor(.orange)
                     }
@@ -231,25 +244,14 @@ struct InviteCodeRow: View {
         }
     }
 
-    private func shareInvite() {
-        let message = """
+    private var shareMessage: String {
+        """
         Join me on Kuurier - the secure platform for activists.
 
         Use my invite code: \(invite.code)
 
         Download: https://kuurier.app
         """
-
-        let activityVC = UIActivityViewController(
-            activityItems: [message],
-            applicationActivities: nil
-        )
-
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = windowScene.windows.first,
-           let rootVC = window.rootViewController {
-            rootVC.present(activityVC, animated: true)
-        }
     }
 }
 
@@ -304,7 +306,7 @@ struct ShareInviteSheet: View {
                     .foregroundColor(.white)
                     .cornerRadius(12)
 
-                    Button(action: shareCode) {
+                    ShareLink(item: shareMessage) {
                         HStack {
                             Image(systemName: "square.and.arrow.up")
                             Text("Share")
@@ -335,25 +337,14 @@ struct ShareInviteSheet: View {
         UIPasteboard.general.string = invite.code
     }
 
-    private func shareCode() {
-        let message = """
+    private var shareMessage: String {
+        """
         Join me on Kuurier - the secure platform for activists.
 
         Use my invite code: \(invite.code)
 
         Download: https://kuurier.app
         """
-
-        let activityVC = UIActivityViewController(
-            activityItems: [message],
-            applicationActivities: nil
-        )
-
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = windowScene.windows.first,
-           let rootVC = window.rootViewController {
-            rootVC.present(activityVC, animated: true)
-        }
     }
 }
 

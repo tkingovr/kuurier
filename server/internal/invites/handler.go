@@ -141,6 +141,9 @@ func (h *Handler) ListInvites(c *gin.Context) {
 	userID := c.GetString("user_id")
 	trustScore := int(c.GetFloat64("trust_score"))
 
+	// Debug logging
+	fmt.Printf("ListInvites: userID=%s, trustScore=%d\n", userID, trustScore)
+
 	ctx := c.Request.Context()
 
 	// Get all invites for this user
@@ -157,7 +160,7 @@ func (h *Handler) ListInvites(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var invites []InviteCode
+	invites := make([]InviteCode, 0) // Initialize as empty slice, not nil (for JSON)
 	var activeCount, usedCount int
 	now := time.Now().UTC()
 
@@ -195,6 +198,10 @@ func (h *Handler) ListInvites(c *gin.Context) {
 	if availableToMake < 0 {
 		availableToMake = 0
 	}
+
+	// Debug logging
+	fmt.Printf("ListInvites Response: allowance=%d, active=%d, used=%d, available=%d\n",
+		allowance, activeCount, usedCount, availableToMake)
 
 	c.JSON(http.StatusOK, InvitesResponse{
 		Invites:         invites,

@@ -29,6 +29,8 @@ final class InviteService: ObservableObject {
         do {
             let response: InvitesResponse = try await api.get("/invites")
 
+            print("InviteService: Received response - allowance=\(response.totalAllowance), available=\(response.availableToMake)")
+
             invites = response.invites
             totalAllowance = response.totalAllowance
             usedCount = response.usedCount
@@ -36,6 +38,7 @@ final class InviteService: ObservableObject {
             availableToMake = response.availableToMake
             isLoading = false
         } catch {
+            print("InviteService: Error fetching invites: \(error)")
             self.error = error.localizedDescription
             isLoading = false
         }

@@ -243,15 +243,6 @@ struct InviteCode: Codable, Identifiable {
     let expiresAt: Date
     let usedAt: Date?
     let status: InviteStatus
-
-    enum CodingKeys: String, CodingKey {
-        case id, code, status
-        case inviterId = "inviter_id"
-        case inviteeId = "invitee_id"
-        case createdAt = "created_at"
-        case expiresAt = "expires_at"
-        case usedAt = "used_at"
-    }
 }
 
 enum InviteStatus: String, Codable {
@@ -266,14 +257,6 @@ struct InvitesResponse: Codable {
     let usedCount: Int
     let activeCount: Int
     let availableToMake: Int
-
-    enum CodingKeys: String, CodingKey {
-        case invites
-        case totalAllowance = "total_allowance"
-        case usedCount = "used_count"
-        case activeCount = "active_count"
-        case availableToMake = "available_to_make"
-    }
 }
 
 struct GenerateInviteResponse: Codable {
@@ -281,9 +264,4 @@ struct GenerateInviteResponse: Codable {
     let code: String
     let expiresAt: Date
     let message: String
-
-    enum CodingKeys: String, CodingKey {
-        case id, code, message
-        case expiresAt = "expires_at"
-    }
 }
