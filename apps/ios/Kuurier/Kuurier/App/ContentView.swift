@@ -110,14 +110,47 @@ struct AlertsView: View {
 struct SettingsView: View {
     @EnvironmentObject var authService: AuthService
     @State private var showPanicConfirmation = false
+    @State private var showRecoveryKey = false
 
     var body: some View {
         NavigationStack {
             List {
                 Section("Account") {
                     if let user = authService.currentUser {
-                        LabeledContent("Trust Score", value: "\(user.trustScore)")
+                        TrustScoreRow(trustScore: user.trustScore)
                         LabeledContent("Status", value: user.isVerified ? "Verified" : "Unverified")
+                    }
+                }
+
+                Section("Community") {
+                    NavigationLink {
+                        InvitesView()
+                    } label: {
+                        HStack {
+                            Image(systemName: "envelope.badge.person.crop")
+                                .foregroundColor(.orange)
+                            Text("Invites")
+                            Spacer()
+                            if let user = authService.currentUser, user.trustScore >= 30 {
+                                Text("Available")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Image(systemName: "lock.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+
+                    NavigationLink {
+                        Text("Vouching coming soon...")
+                    } label: {
+                        HStack {
+                            Image(systemName: "person.badge.shield.checkmark")
+                                .foregroundColor(.orange)
+                            Text("Vouches")
+                        }
                     }
                 }
 
@@ -137,12 +170,18 @@ struct SettingsView: View {
                 }
 
                 Section("Security") {
-                    Button("Export Recovery Key") {
-                        // Export private key
+                    Button(action: { showRecoveryKey = true }) {
+                        HStack {
+                            Image(systemName: "key")
+                            Text("Export Recovery Key")
+                        }
                     }
 
-                    Button("Panic Wipe", role: .destructive) {
-                        showPanicConfirmation = true
+                    Button(role: .destructive, action: { showPanicConfirmation = true }) {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text("Panic Wipe")
+                        }
                     }
                 }
 
@@ -161,6 +200,151 @@ struct SettingsView: View {
             } message: {
                 Text("This will permanently delete ALL data including your account keys. This cannot be undone.")
             }
+            .sheet(isPresented: $showRecoveryKey) {
+                RecoveryKeyExportView()
+            }
+        }
+    }
+}
+
+// MARK: - Trust Score Row
+
+struct TrustScoreRow: View {
+    let trustScore: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Trust Score")
+                Spacer()
+                Text("\(trustScore)")
+                    .fontWeight(.semibold)
+                    .foregroundColor(trustColor)
+            }
+
+            // Progress bar
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 6)
+                        .cornerRadius(3)
+
+                    Rectangle()
+                        .fill(trustColor)
+                        .frame(width: min(CGFloat(trustScore) / 100.0 * geometry.size.width, geometry.size.width), height: 6)
+                        .cornerRadius(3)
+                }
+            }
+            .frame(height: 6)
+
+            // Next milestone
+            if let nextMilestone = nextMilestone {
+                Text(nextMilestone)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var trustColor: Color {
+        switch trustScore {
+        case 0..<15: return .red
+        case 15..<25: return .orange
+        case 25..<50: return .yellow
+        case 50..<100: return .green
+        default: return .blue
+        }
+    }
+
+    private var nextMilestone: String? {
+        if trustScore < 25 {
+            return "Reach 25 to create posts"
+        } else if trustScore < 30 {
+            return "Reach 30 to generate invites"
+        } else if trustScore < 50 {
+            return "Reach 50 to create events"
+        } else if trustScore < 100 {
+            return "Reach 100 to send SOS alerts"
+        }
+        return nil
+    }
+}
+
+// MARK: - Recovery Key Export
+
+struct RecoveryKeyExportView: View {
+    @EnvironmentObject var authService: AuthService
+    @Environment(\.dismiss) var dismiss
+    @State private var recoveryKey: String = ""
+    @State private var copied = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.orange)
+
+                Text("Your Recovery Key")
+                    .font(.title)
+                    .fontWeight(.bold)
+
+                Text("Store this key safely. It's the ONLY way to recover your account if you lose access.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+
+                if !recoveryKey.isEmpty {
+                    Text(recoveryKey)
+                        .font(.system(.caption, design: .monospaced))
+                        .padding()
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                        .textSelection(.enabled)
+
+                    Button(action: copyKey) {
+                        HStack {
+                            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            Text(copied ? "Copied!" : "Copy to Clipboard")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .padding()
+                    .background(copied ? Color.green : Color.orange)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                }
+
+                Spacer()
+
+                Text("Never share this key with anyone!")
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+            .padding()
+            .navigationTitle("Recovery Key")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .onAppear {
+                if let data = authService.exportRecoveryData() {
+                    recoveryKey = data.base64EncodedString()
+                }
+            }
+        }
+    }
+
+    private func copyKey() {
+        UIPasteboard.general.string = recoveryKey
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            copied = false
         }
     }
 }
