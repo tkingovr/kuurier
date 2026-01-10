@@ -169,8 +169,34 @@ struct SettingsView: View {
 
 struct OnboardingView: View {
     @EnvironmentObject var authService: AuthService
+    @State private var step: OnboardingStep = .welcome
+    @State private var inviteCode = ""
+    @State private var showRecovery = false
+
+    enum OnboardingStep {
+        case welcome
+        case inviteCode
+    }
 
     var body: some View {
+        VStack(spacing: 32) {
+            switch step {
+            case .welcome:
+                welcomeStep
+            case .inviteCode:
+                inviteCodeStep
+            }
+        }
+        .padding()
+        .animation(.easeInOut, value: step)
+        .sheet(isPresented: $showRecovery) {
+            RecoveryView()
+        }
+    }
+
+    // MARK: - Welcome Step
+
+    private var welcomeStep: some View {
         VStack(spacing: 32) {
             Spacer()
 
@@ -201,42 +227,242 @@ struct OnboardingView: View {
 
             // Get Started Button
             Button(action: {
-                Task {
-                    await authService.authenticate()
-                }
+                step = .inviteCode
             }) {
-                if authService.isLoading {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                } else {
-                    Text("Get Started")
-                        .fontWeight(.semibold)
-                }
+                Text("Get Started")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
             .padding()
             .background(Color.orange)
             .foregroundColor(.white)
             .cornerRadius(12)
             .padding(.horizontal)
-            .disabled(authService.isLoading)
-
-            if let error = authService.error {
-                Text(error)
-                    .foregroundColor(.red)
-                    .font(.caption)
-            }
 
             // Recovery option
             Button("Recover existing account") {
-                // Show recovery flow
+                showRecovery = true
             }
             .font(.footnote)
             .foregroundColor(.secondary)
 
             Spacer()
         }
-        .padding()
+    }
+
+    // MARK: - Invite Code Step
+
+    private var inviteCodeStep: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            // Back button
+            HStack {
+                Button(action: { step = .welcome }) {
+                    Image(systemName: "chevron.left")
+                        .font(.title2)
+                        .foregroundColor(.orange)
+                }
+                Spacer()
+            }
+            .padding(.horizontal)
+
+            Image(systemName: "envelope.badge.person.crop")
+                .font(.system(size: 60))
+                .foregroundColor(.orange)
+
+            Text("Enter Invite Code")
+                .font(.title)
+                .fontWeight(.bold)
+
+            Text("Kuurier is invite-only to protect the community.\nAsk a trusted member for an invite code.")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+
+            // Invite code input
+            TextField("KUU-XXXXXX", text: $inviteCode)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.title2, design: .monospaced))
+                .multilineTextAlignment(.center)
+                .autocapitalization(.allCharacters)
+                .disableAutocorrection(true)
+                .padding(.horizontal, 40)
+                .onChange(of: inviteCode) { _, newValue in
+                    // Auto-format invite code
+                    inviteCode = formatInviteCode(newValue)
+                }
+
+            if let error = authService.inviteError {
+                HStack {
+                    Image(systemName: "exclamationmark.circle.fill")
+                    Text(error)
+                }
+                .foregroundColor(.red)
+                .font(.caption)
+            }
+
+            if let error = authService.error {
+                HStack {
+                    Image(systemName: "exclamationmark.circle.fill")
+                    Text(error)
+                }
+                .foregroundColor(.red)
+                .font(.caption)
+            }
+
+            Spacer()
+
+            // Join Button
+            Button(action: {
+                Task {
+                    let isValid = await authService.validateInviteCode(inviteCode)
+                    if isValid {
+                        await authService.authenticate(inviteCode: inviteCode)
+                    }
+                }
+            }) {
+                if authService.isLoading {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                } else {
+                    Text("Join Kuurier")
+                        .fontWeight(.semibold)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(isValidCodeFormat ? Color.orange : Color.gray)
+            .foregroundColor(.white)
+            .cornerRadius(12)
+            .padding(.horizontal)
+            .disabled(!isValidCodeFormat || authService.isLoading)
+
+            Text("By joining, you agree to uphold community trust.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Helpers
+
+    private var isValidCodeFormat: Bool {
+        // Check if code matches pattern KUU-XXXXXX
+        let pattern = "^KUU-[A-Z0-9]{6}$"
+        return inviteCode.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    private func formatInviteCode(_ input: String) -> String {
+        // Remove any existing prefix and non-alphanumeric characters
+        var cleaned = input.uppercased().replacingOccurrences(of: "[^A-Z0-9]", with: "", options: .regularExpression)
+
+        // Remove KUU prefix if present
+        if cleaned.hasPrefix("KUU") {
+            cleaned = String(cleaned.dropFirst(3))
+        }
+
+        // Limit to 6 characters
+        let code = String(cleaned.prefix(6))
+
+        // Add prefix back
+        if code.isEmpty {
+            return ""
+        }
+        return "KUU-\(code)"
+    }
+}
+
+// MARK: - Recovery View
+
+struct RecoveryView: View {
+    @EnvironmentObject var authService: AuthService
+    @Environment(\.dismiss) var dismiss
+    @State private var recoveryKey = ""
+    @State private var isRecovering = false
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.orange)
+
+                Text("Account Recovery")
+                    .font(.title)
+                    .fontWeight(.bold)
+
+                Text("Paste your recovery key to restore your account.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+
+                TextEditor(text: $recoveryKey)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(height: 100)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                    .padding(.horizontal)
+
+                if let error = error {
+                    Text(error)
+                        .foregroundColor(.red)
+                        .font(.caption)
+                }
+
+                Spacer()
+
+                Button(action: recoverAccount) {
+                    if isRecovering {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    } else {
+                        Text("Recover Account")
+                            .fontWeight(.semibold)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.orange)
+                .foregroundColor(.white)
+                .cornerRadius(12)
+                .padding(.horizontal)
+                .disabled(recoveryKey.isEmpty || isRecovering)
+            }
+            .padding()
+            .navigationTitle("Recovery")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func recoverAccount() {
+        guard let data = Data(base64Encoded: recoveryKey.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            error = "Invalid recovery key format"
+            return
+        }
+
+        isRecovering = true
+        error = nil
+
+        Task {
+            do {
+                try await authService.importRecoveryData(data)
+                await MainActor.run { dismiss() }
+            } catch {
+                await MainActor.run {
+                    self.error = "Recovery failed: \(error.localizedDescription)"
+                    isRecovering = false
+                }
+            }
+        }
     }
 }
 
