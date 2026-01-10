@@ -309,6 +309,18 @@ struct ComposePostView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Error display
+                if let error = feedService.error {
+                    Section {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.red)
+                            Text(error)
+                                .foregroundColor(.red)
+                        }
+                    }
+                }
+
                 // Content Section
                 Section("Content") {
                     TextEditor(text: $content)
@@ -446,14 +458,17 @@ struct ComposePostView: View {
     }
 
     private func submitPost() {
+        print("ComposePostView: Submit button tapped")
         isSubmitting = true
         Task {
+            print("ComposePostView: Calling createPost...")
             let success = await feedService.createPost(
                 content: content.trimmingCharacters(in: .whitespacesAndNewlines),
                 sourceType: sourceType,
                 locationName: includeLocation && !locationName.isEmpty ? locationName : nil,
                 urgency: urgency
             )
+            print("ComposePostView: createPost returned success=\(success)")
             if success {
                 dismiss()
             }

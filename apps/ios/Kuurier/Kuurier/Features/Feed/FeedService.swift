@@ -89,12 +89,18 @@ final class FeedService: ObservableObject {
                 urgency: urgency
             )
 
-            let _: CreatePostResponse = try await api.post("/feed", body: request)
+            print("FeedService: Creating post with content=\(content.prefix(50))..., sourceType=\(sourceType.rawValue), urgency=\(urgency)")
+
+            let response: CreatePostResponse = try await api.post("/feed", body: request)
+
+            print("FeedService: Post created successfully with id=\(response.id)")
 
             // Refresh feed to show new post
             await fetchFeed(refresh: true)
+            isLoading = false
             return true
         } catch {
+            print("FeedService: Error creating post: \(error)")
             self.error = error.localizedDescription
             isLoading = false
             return false
