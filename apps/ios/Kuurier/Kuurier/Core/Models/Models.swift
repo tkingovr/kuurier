@@ -231,3 +231,37 @@ struct MessageResponse: Codable {
     let message: String
     let id: String?
 }
+
+// MARK: - Invites
+
+struct InviteCode: Codable, Identifiable {
+    let id: String
+    let code: String
+    let inviterId: String
+    let inviteeId: String?
+    let createdAt: Date
+    let expiresAt: Date
+    let usedAt: Date?
+    let status: InviteStatus
+}
+
+enum InviteStatus: String, Codable {
+    case active
+    case used
+    case expired
+}
+
+struct InvitesResponse: Codable {
+    let invites: [InviteCode]
+    let totalAllowance: Int
+    let usedCount: Int
+    let activeCount: Int
+    let availableToMake: Int
+}
+
+struct GenerateInviteResponse: Codable {
+    let id: String
+    let code: String
+    let expiresAt: Date
+    let message: String
+}

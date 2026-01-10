@@ -1,6 +1,21 @@
 import Foundation
 import Combine
 
+/// Response from invite validation endpoint
+struct InviteValidation: Codable {
+    let valid: Bool
+    let expiresAt: Date?
+    let error: String?
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case valid
+        case expiresAt = "expires_at"
+        case error
+        case message
+    }
+}
+
 /// Handles anonymous authentication using Ed25519 keypairs
 final class AuthService: ObservableObject {
 
@@ -10,6 +25,7 @@ final class AuthService: ObservableObject {
     @Published var currentUser: User?
     @Published var isLoading = false
     @Published var error: String?
+    @Published var inviteError: String?
 
     private let api = APIClient.shared
     private let keyManager = KeyManager.shared
@@ -20,19 +36,54 @@ final class AuthService: ObservableObject {
         isAuthenticated = storage.isLoggedIn
     }
 
+    // MARK: - Invite Validation
+
+    /// Validates an invite code before registration
+    func validateInviteCode(_ code: String) async -> Bool {
+        await MainActor.run { isLoading = true; inviteError = nil }
+
+        do {
+            let response: InviteValidation = try await api.get("/invites/validate/\(code)")
+
+            await MainActor.run {
+                isLoading = false
+                if !response.valid {
+                    inviteError = response.message ?? response.error ?? "Invalid invite code"
+                }
+            }
+
+            return response.valid
+        } catch {
+            await MainActor.run {
+                isLoading = false
+                inviteError = "Could not validate invite code"
+            }
+            return false
+        }
+    }
+
     // MARK: - Registration & Login
 
-    /// Creates a new account or logs in if keypair exists
-    func authenticate() async {
+    /// Creates a new account with invite code or logs in if keypair exists
+    func authenticate(inviteCode: String? = nil) async {
         await MainActor.run { isLoading = true; error = nil }
 
         do {
             let publicKey: Data
+            let hasExistingKey = keyManager.getPublicKey() != nil
 
             // Check if we have an existing keypair
             if let existingKey = keyManager.getPublicKey() {
                 publicKey = existingKey
             } else {
+                // New registration requires invite code
+                guard let inviteCode = inviteCode, !inviteCode.isEmpty else {
+                    await MainActor.run {
+                        error = "Invite code required for new registration"
+                        isLoading = false
+                    }
+                    return
+                }
                 // Generate new keypair
                 publicKey = try keyManager.generateKeyPair()
             }
@@ -40,10 +91,14 @@ final class AuthService: ObservableObject {
             // Base64 encode the public key
             let publicKeyBase64 = publicKey.base64EncodedString()
 
+            // Build request body with invite code for new registrations
+            let requestBody = RegisterRequest(
+                publicKey: publicKeyBase64,
+                inviteCode: hasExistingKey ? nil : inviteCode
+            )
+
             // Request challenge from server
-            let challengeResponse: AuthChallenge = try await api.post("/auth/register", body: [
-                "public_key": publicKeyBase64
-            ])
+            let challengeResponse: AuthChallenge = try await api.post("/auth/register", body: requestBody)
 
             // Sign the challenge with our private key
             let signature = try keyManager.sign(challenge: challengeResponse.challenge)
@@ -144,3 +199,9 @@ final class AuthService: ObservableObject {
 
 // Helper for empty request bodies
 private struct EmptyBody: Encodable {}
+
+// Registration request body
+private struct RegisterRequest: Encodable {
+    let publicKey: String
+    let inviteCode: String?
+}

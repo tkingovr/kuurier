@@ -15,6 +15,8 @@
 		52E7DAFF2F1151EC00CCA28A /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAF02F1151EC00CCA28A /* AuthService.swift */; };
 		52E7DB002F1151EC00CCA28A /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAE62F1151EC00CCA28A /* KeyManager.swift */; };
 		52E7DB012F1151ED00CCA28A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 52E7DAF82F1151EC00CCA28A /* Assets.xcassets */; };
+		52E7DB052F1151EC00CCA28A /* InviteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB022F1151EC00CCA28A /* InviteService.swift */; };
+		52E7DB062F1151EC00CCA28A /* InvitesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB032F1151EC00CCA28A /* InvitesView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +29,8 @@
 		52E7DAEC2F1151EC00CCA28A /* SecureStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStorage.swift; sourceTree = "<group>"; };
 		52E7DAF02F1151EC00CCA28A /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
 		52E7DAF82F1151EC00CCA28A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		52E7DB022F1151EC00CCA28A /* InviteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteService.swift; sourceTree = "<group>"; };
+		52E7DB032F1151EC00CCA28A /* InvitesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitesView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -151,6 +155,15 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		52E7DB042F1151EC00CCA28A /* Invites */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB022F1151EC00CCA28A /* InviteService.swift */,
+				52E7DB032F1151EC00CCA28A /* InvitesView.swift */,
+			);
+			path = Invites;
+			sourceTree = "<group>";
+		};
 		52E7DAF62F1151EC00CCA28A /* Features */ = {
 			isa = PBXGroup;
 			children = (
@@ -158,6 +171,7 @@
 				52E7DAF12F1151EC00CCA28A /* Auth */,
 				52E7DAF22F1151EC00CCA28A /* Events */,
 				52E7DAF32F1151EC00CCA28A /* Feed */,
+				52E7DB042F1151EC00CCA28A /* Invites */,
 				52E7DAF42F1151EC00CCA28A /* Map */,
 				52E7DAF52F1151EC00CCA28A /* Settings */,
 			);
@@ -262,6 +276,8 @@
 				52E7DAFE2F1151EC00CCA28A /* ContentView.swift in Sources */,
 				52E7DAFF2F1151EC00CCA28A /* AuthService.swift in Sources */,
 				52E7DB002F1151EC00CCA28A /* KeyManager.swift in Sources */,
+				52E7DB052F1151EC00CCA28A /* InviteService.swift in Sources */,
+				52E7DB062F1151EC00CCA28A /* InvitesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
