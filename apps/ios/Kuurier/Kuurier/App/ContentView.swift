@@ -59,6 +59,20 @@ struct ContentView: View {
 // MARK: - Placeholder Views
 
 struct FeedView: View {
+    @EnvironmentObject var authService: AuthService
+    @State private var showComposeSheet = false
+    @State private var showLockedAlert = false
+
+    private var canPost: Bool {
+        guard let user = authService.currentUser else { return false }
+        return user.trustScore >= 25
+    }
+
+    private var trustNeeded: Int {
+        guard let user = authService.currentUser else { return 25 }
+        return max(0, 25 - user.trustScore)
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -66,6 +80,57 @@ struct FeedView: View {
                     .foregroundColor(.secondary)
             }
             .navigationTitle("Feed")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: {
+                        if canPost {
+                            showComposeSheet = true
+                        } else {
+                            showLockedAlert = true
+                        }
+                    }) {
+                        Image(systemName: canPost ? "square.and.pencil" : "lock.fill")
+                            .foregroundColor(canPost ? .orange : .gray)
+                    }
+                }
+            }
+            .sheet(isPresented: $showComposeSheet) {
+                ComposePostView()
+            }
+            .alert("Posting Locked", isPresented: $showLockedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("You need a trust score of 25 to create posts. Get \(trustNeeded) more point\(trustNeeded == 1 ? "" : "s") by receiving vouches from trusted members.")
+            }
+        }
+    }
+}
+
+struct ComposePostView: View {
+    @Environment(\.dismiss) var dismiss
+    @State private var content = ""
+
+    var body: some View {
+        NavigationStack {
+            VStack {
+                TextEditor(text: $content)
+                    .padding()
+                Spacer()
+            }
+            .navigationTitle("New Post")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Post") {
+                        // TODO: Submit post
+                        dismiss()
+                    }
+                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
         }
     }
 }
@@ -84,6 +149,20 @@ struct MapView: View {
 }
 
 struct EventsView: View {
+    @EnvironmentObject var authService: AuthService
+    @State private var showCreateSheet = false
+    @State private var showLockedAlert = false
+
+    private var canCreateEvent: Bool {
+        guard let user = authService.currentUser else { return false }
+        return user.trustScore >= 50
+    }
+
+    private var trustNeeded: Int {
+        guard let user = authService.currentUser else { return 50 }
+        return max(0, 50 - user.trustScore)
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -91,18 +170,205 @@ struct EventsView: View {
                     .foregroundColor(.secondary)
             }
             .navigationTitle("Events")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: {
+                        if canCreateEvent {
+                            showCreateSheet = true
+                        } else {
+                            showLockedAlert = true
+                        }
+                    }) {
+                        Image(systemName: canCreateEvent ? "calendar.badge.plus" : "lock.fill")
+                            .foregroundColor(canCreateEvent ? .orange : .gray)
+                    }
+                }
+            }
+            .sheet(isPresented: $showCreateSheet) {
+                CreateEventView()
+            }
+            .alert("Event Creation Locked", isPresented: $showLockedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("You need a trust score of 50 to create events. Get \(trustNeeded) more point\(trustNeeded == 1 ? "" : "s") by receiving vouches from trusted members.")
+            }
+        }
+    }
+}
+
+struct CreateEventView: View {
+    @Environment(\.dismiss) var dismiss
+    @State private var title = ""
+    @State private var description = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Event Details") {
+                    TextField("Title", text: $title)
+                    TextField("Description", text: $description, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+
+                Section("Location") {
+                    Text("Location picker coming soon...")
+                        .foregroundColor(.secondary)
+                }
+
+                Section("Date & Time") {
+                    Text("Date picker coming soon...")
+                        .foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("New Event")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        // TODO: Submit event
+                        dismiss()
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
         }
     }
 }
 
 struct AlertsView: View {
+    @EnvironmentObject var authService: AuthService
+    @State private var showSOSSheet = false
+    @State private var showLockedAlert = false
+
+    private var canSendSOS: Bool {
+        guard let user = authService.currentUser else { return false }
+        return user.trustScore >= 100 || user.isVerified
+    }
+
+    private var trustNeeded: Int {
+        guard let user = authService.currentUser else { return 100 }
+        return max(0, 100 - user.trustScore)
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                Text("SOS Alerts coming soon...")
-                    .foregroundColor(.secondary)
+                // SOS Button at top
+                Section {
+                    Button(action: {
+                        if canSendSOS {
+                            showSOSSheet = true
+                        } else {
+                            showLockedAlert = true
+                        }
+                    }) {
+                        HStack {
+                            Spacer()
+                            VStack(spacing: 8) {
+                                Image(systemName: canSendSOS ? "exclamationmark.triangle.fill" : "lock.fill")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(canSendSOS ? .red : .gray)
+                                Text(canSendSOS ? "Send SOS Alert" : "SOS Locked")
+                                    .font(.headline)
+                                    .foregroundColor(canSendSOS ? .red : .gray)
+                                if !canSendSOS {
+                                    Text("Requires trust score of 100")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 20)
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Active alerts section
+                Section("Active Alerts Nearby") {
+                    Text("No active alerts in your area")
+                        .foregroundColor(.secondary)
+                }
             }
             .navigationTitle("Alerts")
+            .sheet(isPresented: $showSOSSheet) {
+                SendSOSView()
+            }
+            .alert("SOS Alerts Locked", isPresented: $showLockedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("SOS alerts require a trust score of 100 or verified status to prevent misuse. Get \(trustNeeded) more point\(trustNeeded == 1 ? "" : "s") by receiving vouches from trusted members.")
+            }
+        }
+    }
+}
+
+struct SendSOSView: View {
+    @Environment(\.dismiss) var dismiss
+    @State private var title = ""
+    @State private var description = ""
+    @State private var severity: Int = 3
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 50))
+                            .foregroundColor(.red)
+                        Text("Send SOS Alert")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Text("This will alert nearby trusted members")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical)
+                }
+
+                Section("What's happening?") {
+                    TextField("Brief title", text: $title)
+                    TextField("Details (optional)", text: $description, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+
+                Section("Severity") {
+                    Picker("Severity Level", selection: $severity) {
+                        Text("Low").tag(1)
+                        Text("Medium").tag(2)
+                        Text("High").tag(3)
+                        Text("Critical").tag(4)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("Location") {
+                    Text("Your current location will be shared")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                }
+            }
+            .navigationTitle("SOS Alert")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send SOS") {
+                        // TODO: Submit SOS alert
+                        dismiss()
+                    }
+                    .foregroundColor(.red)
+                    .fontWeight(.bold)
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
         }
     }
 }
@@ -211,6 +477,7 @@ struct SettingsView: View {
 
 struct TrustScoreRow: View {
     let trustScore: Int
+    @State private var showLevels = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -220,6 +487,15 @@ struct TrustScoreRow: View {
                 Text("\(trustScore)")
                     .fontWeight(.semibold)
                     .foregroundColor(trustColor)
+                Image(systemName: showLevels ? "chevron.up" : "chevron.down")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showLevels.toggle()
+                }
             }
 
             // Progress bar
@@ -243,6 +519,19 @@ struct TrustScoreRow: View {
                 Text(nextMilestone)
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+
+            // Expandable trust levels
+            if showLevels {
+                VStack(spacing: 0) {
+                    Divider()
+                        .padding(.vertical, 8)
+                    TrustLevelRow(level: 15, label: "Browse & View", icon: "eye", currentScore: trustScore)
+                    TrustLevelRow(level: 25, label: "Create Posts", icon: "square.and.pencil", currentScore: trustScore)
+                    TrustLevelRow(level: 30, label: "Generate Invites", icon: "envelope.badge.person.crop", currentScore: trustScore)
+                    TrustLevelRow(level: 50, label: "Create Events", icon: "calendar.badge.plus", currentScore: trustScore)
+                    TrustLevelRow(level: 100, label: "Send SOS Alerts", icon: "exclamationmark.triangle.fill", currentScore: trustScore)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -269,6 +558,41 @@ struct TrustScoreRow: View {
             return "Reach 100 to send SOS alerts"
         }
         return nil
+    }
+}
+
+struct TrustLevelRow: View {
+    let level: Int
+    let label: String
+    let icon: String
+    let currentScore: Int
+
+    private var isUnlocked: Bool { currentScore >= level }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: isUnlocked ? "checkmark.circle.fill" : "lock.fill")
+                .foregroundColor(isUnlocked ? .green : .gray)
+                .font(.caption)
+                .frame(width: 20)
+
+            Image(systemName: icon)
+                .foregroundColor(isUnlocked ? .orange : .gray)
+                .font(.caption)
+                .frame(width: 20)
+
+            Text(label)
+                .font(.caption)
+                .foregroundColor(isUnlocked ? .primary : .secondary)
+
+            Spacer()
+
+            Text("\(level)")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(isUnlocked ? .green : .secondary)
+        }
+        .padding(.vertical, 4)
     }
 }
 
