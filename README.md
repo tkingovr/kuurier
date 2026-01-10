@@ -1,6 +1,6 @@
 # Kuurier
 
-**The pulse of the movement, delivered.**
+**The Activitst OS.**
 
 Kuurier is a secure, privacy-first platform for activists to organize, communicate, and stay informed. Built with end-to-end encryption and anonymous authentication by design.
 
