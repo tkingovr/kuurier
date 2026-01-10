@@ -122,12 +122,13 @@ func (h *Handler) CreatePost(c *gin.Context) {
 	userID := c.GetString("user_id")
 	trustScore := c.GetFloat64("trust_score")
 
-	// Require minimum trust to post
-	if trustScore < 30 {
+	// Require minimum trust to post (invite = 15, one vouch = +10, total = 25)
+	if trustScore < 25 {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error":    "insufficient trust level to post",
-			"required": 30,
+			"required": 25,
 			"current":  int(trustScore),
+			"message":  "Get vouched by one more trusted member to unlock posting",
 		})
 		return
 	}
