@@ -304,29 +304,66 @@ struct ComposePostView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextEditor(text: $content)
-                        .frame(minHeight: 120)
-                }
-
-                Section("Source") {
-                    Picker("Source Type", selection: $sourceType) {
-                        Text("Firsthand (I witnessed this)").tag(SourceType.firsthand)
-                        Text("Aggregated (From others)").tag(SourceType.aggregated)
-                        Text("Mainstream (News source)").tag(SourceType.mainstream)
+            VStack(spacing: 0) {
+                // Main text area
+                TextEditor(text: $content)
+                    .padding()
+                    .overlay(alignment: .topLeading) {
+                        if content.isEmpty {
+                            Text("What's happening?")
+                                .foregroundColor(.secondary)
+                                .padding(.top, 24)
+                                .padding(.leading, 20)
+                                .allowsHitTesting(false)
+                        }
                     }
-                    .pickerStyle(.automatic)
-                }
 
-                Section("Urgency") {
-                    Picker("Urgency Level", selection: $urgency) {
-                        Text("Low").tag(1)
-                        Text("Medium").tag(2)
-                        Text("High").tag(3)
+                Divider()
+
+                // Bottom toolbar
+                VStack(spacing: 12) {
+                    // Source type
+                    HStack {
+                        Text("Source")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Picker("", selection: $sourceType) {
+                            Label("Firsthand", systemImage: "eye.fill").tag(SourceType.firsthand)
+                            Label("Aggregated", systemImage: "arrow.triangle.merge").tag(SourceType.aggregated)
+                            Label("News", systemImage: "newspaper.fill").tag(SourceType.mainstream)
+                        }
+                        .pickerStyle(.menu)
+                        .tint(sourceColor)
                     }
-                    .pickerStyle(.segmented)
+
+                    // Urgency
+                    HStack {
+                        Text("Urgency")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        HStack(spacing: 8) {
+                            ForEach(1...3, id: \.self) { level in
+                                Button(action: { urgency = level }) {
+                                    Circle()
+                                        .fill(level <= urgency ? urgencyColor(level) : Color.gray.opacity(0.3))
+                                        .frame(width: 20, height: 20)
+                                        .overlay {
+                                            if level == urgency {
+                                                Circle()
+                                                    .stroke(urgencyColor(level), lineWidth: 2)
+                                                    .frame(width: 26, height: 26)
+                                            }
+                                        }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
                 }
+                .padding()
+                .background(Color(.systemGroupedBackground))
             }
             .navigationTitle("New Post")
             .navigationBarTitleDisplayMode(.inline)
@@ -335,13 +372,35 @@ struct ComposePostView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Post") {
-                        submitPost()
+                    Button(action: submitPost) {
+                        if isSubmitting {
+                            ProgressView()
+                        } else {
+                            Text("Post")
+                                .fontWeight(.semibold)
+                        }
                     }
                     .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
                 }
             }
             .interactiveDismissDisabled(isSubmitting)
+        }
+    }
+
+    private var sourceColor: Color {
+        switch sourceType {
+        case .firsthand: return .green
+        case .aggregated: return .blue
+        case .mainstream: return .purple
+        }
+    }
+
+    private func urgencyColor(_ level: Int) -> Color {
+        switch level {
+        case 1: return .green
+        case 2: return .yellow
+        case 3: return .red
+        default: return .gray
         }
     }
 
