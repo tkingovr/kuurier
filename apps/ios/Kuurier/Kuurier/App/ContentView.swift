@@ -300,70 +300,78 @@ struct ComposePostView: View {
     @State private var content = ""
     @State private var sourceType: SourceType = .firsthand
     @State private var urgency: Int = 1
+    @State private var locationName: String = ""
     @State private var isSubmitting = false
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Main text area
-                TextEditor(text: $content)
-                    .padding()
-                    .overlay(alignment: .topLeading) {
-                        if content.isEmpty {
-                            Text("What's happening?")
-                                .foregroundColor(.secondary)
-                                .padding(.top, 24)
-                                .padding(.leading, 20)
-                                .allowsHitTesting(false)
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // Content
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("What's happening?")
+                            .font(.headline)
+                        TextEditor(text: $content)
+                            .frame(minHeight: 120)
+                            .padding(8)
+                            .background(Color(.systemGray6))
+                            .cornerRadius(8)
                     }
 
-                Divider()
-
-                // Bottom toolbar
-                VStack(spacing: 12) {
-                    // Source type
-                    HStack {
+                    // Source
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Source")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Picker("", selection: $sourceType) {
-                            Label("Firsthand", systemImage: "eye.fill").tag(SourceType.firsthand)
-                            Label("Aggregated", systemImage: "arrow.triangle.merge").tag(SourceType.aggregated)
-                            Label("News", systemImage: "newspaper.fill").tag(SourceType.mainstream)
-                        }
-                        .pickerStyle(.menu)
-                        .tint(sourceColor)
-                    }
-
-                    // Urgency
-                    HStack {
-                        Text("Urgency")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        HStack(spacing: 8) {
-                            ForEach(1...3, id: \.self) { level in
-                                Button(action: { urgency = level }) {
-                                    Circle()
-                                        .fill(level <= urgency ? urgencyColor(level) : Color.gray.opacity(0.3))
-                                        .frame(width: 20, height: 20)
-                                        .overlay {
-                                            if level == urgency {
-                                                Circle()
-                                                    .stroke(urgencyColor(level), lineWidth: 2)
-                                                    .frame(width: 26, height: 26)
-                                            }
-                                        }
-                                }
-                                .buttonStyle(.plain)
+                            .font(.headline)
+                        HStack(spacing: 12) {
+                            SourceButton(type: .firsthand, selected: sourceType == .firsthand) {
+                                sourceType = .firsthand
+                            }
+                            SourceButton(type: .aggregated, selected: sourceType == .aggregated) {
+                                sourceType = .aggregated
+                            }
+                            SourceButton(type: .mainstream, selected: sourceType == .mainstream) {
+                                sourceType = .mainstream
                             }
                         }
                     }
+
+                    // Urgency
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Urgency")
+                            .font(.headline)
+                        HStack(spacing: 8) {
+                            ForEach(1...5, id: \.self) { level in
+                                Button(action: { urgency = min(3, max(1, (level + 1) / 2)) }) {
+                                    Circle()
+                                        .fill(dotColor(for: level))
+                                        .frame(width: 24, height: 24)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Spacer()
+                            Text(urgencyLabel)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    // Location
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Location")
+                            .font(.headline)
+                        HStack {
+                            Image(systemName: "location.fill")
+                                .foregroundColor(.orange)
+                            TextField("Add location (optional)", text: $locationName)
+                        }
+                        .padding(12)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(8)
+                    }
+
+                    Spacer()
                 }
                 .padding()
-                .background(Color(.systemGroupedBackground))
             }
             .navigationTitle("New Post")
             .navigationBarTitleDisplayMode(.inline)
@@ -387,20 +395,32 @@ struct ComposePostView: View {
         }
     }
 
-    private var sourceColor: Color {
-        switch sourceType {
-        case .firsthand: return .green
-        case .aggregated: return .blue
-        case .mainstream: return .purple
+    private func dotColor(for level: Int) -> Color {
+        let filledDots: Int
+        switch urgency {
+        case 1: filledDots = 1
+        case 2: filledDots = 3
+        case 3: filledDots = 5
+        default: filledDots = 1
         }
+
+        if level <= filledDots {
+            switch urgency {
+            case 1: return .green
+            case 2: return .yellow
+            case 3: return .red
+            default: return .green
+            }
+        }
+        return Color.gray.opacity(0.3)
     }
 
-    private func urgencyColor(_ level: Int) -> Color {
-        switch level {
-        case 1: return .green
-        case 2: return .yellow
-        case 3: return .red
-        default: return .gray
+    private var urgencyLabel: String {
+        switch urgency {
+        case 1: return "Low"
+        case 2: return "Medium"
+        case 3: return "High"
+        default: return "Low"
         }
     }
 
@@ -410,12 +430,64 @@ struct ComposePostView: View {
             let success = await feedService.createPost(
                 content: content.trimmingCharacters(in: .whitespacesAndNewlines),
                 sourceType: sourceType,
+                locationName: locationName.isEmpty ? nil : locationName,
                 urgency: urgency
             )
             if success {
                 dismiss()
             }
             isSubmitting = false
+        }
+    }
+}
+
+struct SourceButton: View {
+    let type: SourceType
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.title2)
+                Text(label)
+                    .font(.caption)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(selected ? color.opacity(0.15) : Color(.systemGray6))
+            .foregroundColor(selected ? color : .secondary)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(selected ? color : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var icon: String {
+        switch type {
+        case .firsthand: return "eye.fill"
+        case .aggregated: return "arrow.triangle.merge"
+        case .mainstream: return "newspaper.fill"
+        }
+    }
+
+    private var label: String {
+        switch type {
+        case .firsthand: return "Firsthand"
+        case .aggregated: return "Aggregated"
+        case .mainstream: return "News"
+        }
+    }
+
+    private var color: Color {
+        switch type {
+        case .firsthand: return .green
+        case .aggregated: return .blue
+        case .mainstream: return .purple
         }
     }
 }
