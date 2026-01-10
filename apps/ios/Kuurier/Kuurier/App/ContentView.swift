@@ -60,6 +60,7 @@ struct ContentView: View {
 
 struct FeedView: View {
     @EnvironmentObject var authService: AuthService
+    @StateObject private var feedService = FeedService.shared
     @State private var showComposeSheet = false
     @State private var showLockedAlert = false
 
@@ -75,9 +76,12 @@ struct FeedView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Text("Feed coming soon...")
-                    .foregroundColor(.secondary)
+            Group {
+                if feedService.posts.isEmpty && !feedService.isLoading {
+                    emptyStateView
+                } else {
+                    postListView
+                }
             }
             .navigationTitle("Feed")
             .toolbar {
@@ -102,20 +106,227 @@ struct FeedView: View {
             } message: {
                 Text("You need a trust score of 25 to create posts. Get \(trustNeeded) more point\(trustNeeded == 1 ? "" : "s") by receiving vouches from trusted members.")
             }
+            .task {
+                await feedService.fetchFeed()
+            }
+        }
+    }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "newspaper")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+            Text("No posts yet")
+                .font(.headline)
+                .foregroundColor(.secondary)
+            Text("Be the first to share what's happening")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            if canPost {
+                Button("Create Post") {
+                    showComposeSheet = true
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var postListView: some View {
+        List {
+            ForEach(feedService.posts) { post in
+                PostRowView(post: post)
+            }
+
+            // Load more indicator
+            if feedService.hasMorePosts {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .onAppear {
+                            Task {
+                                await feedService.loadMorePosts()
+                            }
+                        }
+                    Spacer()
+                }
+                .listRowSeparator(.hidden)
+            }
+        }
+        .listStyle(.plain)
+        .refreshable {
+            await feedService.fetchFeed(refresh: true)
         }
     }
 }
 
+// MARK: - Post Row View
+
+struct PostRowView: View {
+    let post: Post
+    @StateObject private var feedService = FeedService.shared
+    @State private var showActions = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                sourceTypeBadge
+                Spacer()
+                urgencyIndicator
+                Text(post.createdAt, style: .relative)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // Content
+            Text(post.content)
+                .font(.body)
+
+            // Location if available
+            if let locationName = post.locationName {
+                HStack(spacing: 4) {
+                    Image(systemName: "location.fill")
+                        .font(.caption)
+                    Text(locationName)
+                        .font(.caption)
+                }
+                .foregroundColor(.secondary)
+            }
+
+            // Actions
+            HStack(spacing: 20) {
+                // Verify button
+                Button(action: {
+                    Task { await feedService.verifyPost(id: post.id) }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle")
+                        Text("\(post.verificationScore)")
+                    }
+                    .font(.caption)
+                    .foregroundColor(post.verificationScore > 0 ? .green : .secondary)
+                }
+                .buttonStyle(.plain)
+
+                // Flag button
+                Button(action: {
+                    Task { await feedService.flagPost(id: post.id) }
+                }) {
+                    Image(systemName: "flag")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                // Share
+                ShareLink(item: post.content) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private var sourceTypeBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: sourceIcon)
+            Text(sourceLabel)
+        }
+        .font(.caption)
+        .fontWeight(.medium)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(sourceColor.opacity(0.15))
+        .foregroundColor(sourceColor)
+        .cornerRadius(4)
+    }
+
+    private var sourceIcon: String {
+        switch post.sourceType {
+        case .firsthand: return "eye.fill"
+        case .aggregated: return "arrow.triangle.merge"
+        case .mainstream: return "newspaper.fill"
+        }
+    }
+
+    private var sourceLabel: String {
+        switch post.sourceType {
+        case .firsthand: return "Firsthand"
+        case .aggregated: return "Aggregated"
+        case .mainstream: return "News"
+        }
+    }
+
+    private var sourceColor: Color {
+        switch post.sourceType {
+        case .firsthand: return .green
+        case .aggregated: return .blue
+        case .mainstream: return .purple
+        }
+    }
+
+    private var urgencyIndicator: some View {
+        HStack(spacing: 2) {
+            ForEach(1...3, id: \.self) { level in
+                Circle()
+                    .fill(level <= post.urgency ? urgencyColor : Color.gray.opacity(0.3))
+                    .frame(width: 6, height: 6)
+            }
+        }
+    }
+
+    private var urgencyColor: Color {
+        switch post.urgency {
+        case 1: return .green
+        case 2: return .yellow
+        case 3: return .red
+        default: return .gray
+        }
+    }
+}
+
+// MARK: - Compose Post View
+
 struct ComposePostView: View {
     @Environment(\.dismiss) var dismiss
+    @StateObject private var feedService = FeedService.shared
     @State private var content = ""
+    @State private var sourceType: SourceType = .firsthand
+    @State private var urgency: Int = 1
+    @State private var isSubmitting = false
 
     var body: some View {
         NavigationStack {
-            VStack {
-                TextEditor(text: $content)
-                    .padding()
-                Spacer()
+            Form {
+                Section {
+                    TextEditor(text: $content)
+                        .frame(minHeight: 120)
+                }
+
+                Section("Source") {
+                    Picker("Source Type", selection: $sourceType) {
+                        Text("Firsthand (I witnessed this)").tag(SourceType.firsthand)
+                        Text("Aggregated (From others)").tag(SourceType.aggregated)
+                        Text("Mainstream (News source)").tag(SourceType.mainstream)
+                    }
+                    .pickerStyle(.automatic)
+                }
+
+                Section("Urgency") {
+                    Picker("Urgency Level", selection: $urgency) {
+                        Text("Low").tag(1)
+                        Text("Medium").tag(2)
+                        Text("High").tag(3)
+                    }
+                    .pickerStyle(.segmented)
+                }
             }
             .navigationTitle("New Post")
             .navigationBarTitleDisplayMode(.inline)
@@ -125,12 +336,27 @@ struct ComposePostView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Post") {
-                        // TODO: Submit post
-                        dismiss()
+                        submitPost()
                     }
-                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
                 }
             }
+            .interactiveDismissDisabled(isSubmitting)
+        }
+    }
+
+    private func submitPost() {
+        isSubmitting = true
+        Task {
+            let success = await feedService.createPost(
+                content: content.trimmingCharacters(in: .whitespacesAndNewlines),
+                sourceType: sourceType,
+                urgency: urgency
+            )
+            if success {
+                dismiss()
+            }
+            isSubmitting = false
         }
     }
 }

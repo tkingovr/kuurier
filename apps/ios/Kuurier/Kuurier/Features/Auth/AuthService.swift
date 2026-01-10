@@ -34,6 +34,13 @@ final class AuthService: ObservableObject {
     private init() {
         // Check if already logged in
         isAuthenticated = storage.isLoggedIn
+
+        // Fetch user profile if already authenticated
+        if isAuthenticated {
+            Task {
+                await fetchCurrentUser()
+            }
+        }
     }
 
     // MARK: - Invite Validation
