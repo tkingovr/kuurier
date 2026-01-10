@@ -15,11 +15,19 @@
 		52E7DAFF2F1151EC00CCA28A /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAF02F1151EC00CCA28A /* AuthService.swift */; };
 		52E7DB002F1151EC00CCA28A /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAE62F1151EC00CCA28A /* KeyManager.swift */; };
 		52E7DB012F1151ED00CCA28A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 52E7DAF82F1151EC00CCA28A /* Assets.xcassets */; };
+		52E7DB102F127A0000CCA28A /* FeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0D2F127A0000CCA28A /* FeedService.swift */; };
+		52E7DB112F127A0000CCA28A /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0E2F127A0000CCA28A /* FeedView.swift */; };
+		52E7DB122F127A0000CCA28A /* PostRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0F2F127A0000CCA28A /* PostRowView.swift */; };
+		52E7DB132F127A0000CCA28A /* CreatePostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB142F127A0000CCA28A /* CreatePostView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		52E7DAD52F11519D00CCA28A /* Kuurier.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kuurier.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		52E7DAE32F1151EC00CCA28A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		52E7DB0D2F127A0000CCA28A /* FeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedService.swift; sourceTree = "<group>"; };
+		52E7DB0E2F127A0000CCA28A /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
+		52E7DB0F2F127A0000CCA28A /* PostRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostRowView.swift; sourceTree = "<group>"; };
+		52E7DB142F127A0000CCA28A /* CreatePostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreatePostView.swift; sourceTree = "<group>"; };
 		52E7DAE42F1151EC00CCA28A /* KuurierApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KuurierApp.swift; sourceTree = "<group>"; };
 		52E7DAE62F1151EC00CCA28A /* KeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyManager.swift; sourceTree = "<group>"; };
 		52E7DAE82F1151EC00CCA28A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -133,6 +141,10 @@
 		52E7DAF32F1151EC00CCA28A /* Feed */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DB0D2F127A0000CCA28A /* FeedService.swift */,
+				52E7DB0E2F127A0000CCA28A /* FeedView.swift */,
+				52E7DB0F2F127A0000CCA28A /* PostRowView.swift */,
+				52E7DB142F127A0000CCA28A /* CreatePostView.swift */,
 			);
 			path = Feed;
 			sourceTree = "<group>";
@@ -262,6 +274,10 @@
 				52E7DAFE2F1151EC00CCA28A /* ContentView.swift in Sources */,
 				52E7DAFF2F1151EC00CCA28A /* AuthService.swift in Sources */,
 				52E7DB002F1151EC00CCA28A /* KeyManager.swift in Sources */,
+				52E7DB102F127A0000CCA28A /* FeedService.swift in Sources */,
+				52E7DB112F127A0000CCA28A /* FeedView.swift in Sources */,
+				52E7DB122F127A0000CCA28A /* PostRowView.swift in Sources */,
+				52E7DB132F127A0000CCA28A /* CreatePostView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

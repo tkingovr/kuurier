@@ -58,18 +58,6 @@ struct ContentView: View {
 
 // MARK: - Placeholder Views
 
-struct FeedView: View {
-    var body: some View {
-        NavigationStack {
-            List {
-                Text("Feed coming soon...")
-                    .foregroundColor(.secondary)
-            }
-            .navigationTitle("Feed")
-        }
-    }
-}
-
 struct MapView: View {
     var body: some View {
         NavigationStack {
