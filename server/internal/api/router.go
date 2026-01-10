@@ -10,6 +10,7 @@ import (
 	"github.com/kuurier/server/internal/events"
 	"github.com/kuurier/server/internal/feed"
 	"github.com/kuurier/server/internal/geo"
+	"github.com/kuurier/server/internal/invites"
 	"github.com/kuurier/server/internal/middleware"
 	"github.com/kuurier/server/internal/storage"
 )
@@ -35,6 +36,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *
 
 	// Initialize handlers
 	authHandler := auth.NewHandler(cfg, db)
+	invitesHandler := invites.NewHandler(cfg, db)
 	feedHandler := feed.NewHandler(cfg, db, redis)
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
@@ -51,6 +53,9 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *
 			authRoutes.POST("/verify", authHandler.Verify)
 		}
 
+		// Invite validation (public - needed before registration)
+		v1.GET("/invites/validate/:code", invitesHandler.ValidateInvite)
+
 		// Protected routes
 		protected := v1.Group("")
 		protected.Use(middleware.Auth(cfg))
@@ -62,6 +67,15 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *
 			// Vouch system (web of trust)
 			protected.POST("/vouch/:user_id", authHandler.Vouch)
 			protected.GET("/vouches", authHandler.GetVouches)
+
+			// Invite routes (requires trust 30+)
+			inviteRoutes := protected.Group("/invites")
+			{
+				inviteRoutes.GET("", invitesHandler.ListInvites)
+				inviteRoutes.POST("", invitesHandler.GenerateInvite)
+				inviteRoutes.DELETE("/:code", invitesHandler.RevokeInvite)
+				inviteRoutes.GET("/stats", invitesHandler.GetInviteStats)
+			}
 
 			// Feed routes
 			feedRoutes := protected.Group("/feed")

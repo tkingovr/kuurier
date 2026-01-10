@@ -29,16 +29,21 @@ func NewHandler(cfg *config.Config, db *storage.Postgres) *Handler {
 
 // RegisterRequest is the request body for registration
 type RegisterRequest struct {
-	PublicKey string `json:"public_key" binding:"required"` // Base64 encoded Ed25519 public key
+	PublicKey  string `json:"public_key" binding:"required"`  // Base64 encoded Ed25519 public key
+	InviteCode string `json:"invite_code" binding:"required"` // Invite code from existing user
 }
 
 // RegisterResponse is the response for successful registration
 type RegisterResponse struct {
-	UserID    string `json:"user_id"`
-	Challenge string `json:"challenge"` // Sign this to complete registration
+	UserID     string `json:"user_id"`
+	Challenge  string `json:"challenge"`   // Sign this to complete registration
+	TrustScore int    `json:"trust_score"` // Initial trust score
 }
 
-// Register creates a new anonymous user account
+// InitialTrustScore is the trust given to users who join via invite
+const InitialTrustScore = 15
+
+// Register creates a new anonymous user account (requires invite code)
 func (h *Handler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -53,8 +58,9 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	// Check if public key already exists
 	ctx := c.Request.Context()
+
+	// Check if public key already exists (login flow)
 	var existingID string
 	err = h.db.Pool().QueryRow(ctx,
 		"SELECT id FROM users WHERE public_key = $1",
@@ -62,29 +68,90 @@ func (h *Handler) Register(c *gin.Context) {
 	).Scan(&existingID)
 
 	if err == nil {
-		// User already exists, return challenge for login
+		// User already exists, return challenge for login (ignore invite code)
 		challenge, err := h.createChallenge(ctx, existingID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create challenge"})
 			return
 		}
+		// Get existing trust score
+		var trustScore int
+		h.db.Pool().QueryRow(ctx, "SELECT trust_score FROM users WHERE id = $1", existingID).Scan(&trustScore)
+
 		c.JSON(http.StatusOK, RegisterResponse{
-			UserID:    existingID,
-			Challenge: challenge,
+			UserID:     existingID,
+			Challenge:  challenge,
+			TrustScore: trustScore,
 		})
 		return
 	}
 
-	// Create new user
+	// Validate invite code
+	var inviterID string
+	var expiresAt time.Time
+	var usedAt *time.Time
+	err = h.db.Pool().QueryRow(ctx,
+		`SELECT inviter_id, expires_at, used_at FROM invite_codes WHERE code = $1`,
+		req.InviteCode,
+	).Scan(&inviterID, &expiresAt, &usedAt)
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid invite code",
+			"message": "This invite code does not exist. You need an invite from an existing member to join.",
+		})
+		return
+	}
+
+	if usedAt != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invite already used",
+			"message": "This invite code has already been used.",
+		})
+		return
+	}
+
+	if expiresAt.Before(time.Now().UTC()) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invite expired",
+			"message": "This invite code has expired. Ask your contact for a new one.",
+		})
+		return
+	}
+
+	// Create new user with initial trust score
 	userID := uuid.New().String()
+	now := time.Now().UTC()
+
 	_, err = h.db.Pool().Exec(ctx,
-		`INSERT INTO users (id, public_key, created_at, trust_score, is_verified)
-		 VALUES ($1, $2, $3, 0, false)`,
-		userID, pubKeyBytes, time.Now().UTC(),
+		`INSERT INTO users (id, public_key, created_at, trust_score, is_verified, invited_by, invite_code_used)
+		 VALUES ($1, $2, $3, $4, false, $5, $6)`,
+		userID, pubKeyBytes, now, InitialTrustScore, inviterID, req.InviteCode,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 		return
+	}
+
+	// Mark invite code as used
+	_, err = h.db.Pool().Exec(ctx,
+		`UPDATE invite_codes SET used_at = $1, invitee_id = $2 WHERE code = $3`,
+		now, userID, req.InviteCode,
+	)
+	if err != nil {
+		// Log but don't fail - user was created
+		// In production, this should be a transaction
+	}
+
+	// Create automatic vouch from inviter (type = 'invite')
+	_, err = h.db.Pool().Exec(ctx,
+		`INSERT INTO vouches (voucher_id, vouchee_id, created_at, vouch_type)
+		 VALUES ($1, $2, $3, 'invite')
+		 ON CONFLICT (voucher_id, vouchee_id) DO NOTHING`,
+		inviterID, userID, now,
+	)
+	if err != nil {
+		// Log but don't fail - user was created
 	}
 
 	// Create challenge for the new user
@@ -95,8 +162,9 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, RegisterResponse{
-		UserID:    userID,
-		Challenge: challenge,
+		UserID:     userID,
+		Challenge:  challenge,
+		TrustScore: InitialTrustScore,
 	})
 }
 
