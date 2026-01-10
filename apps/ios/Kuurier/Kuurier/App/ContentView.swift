@@ -300,78 +300,87 @@ struct ComposePostView: View {
     @State private var content = ""
     @State private var sourceType: SourceType = .firsthand
     @State private var urgency: Int = 1
+    @State private var includeLocation = false
     @State private var locationName: String = ""
     @State private var isSubmitting = false
 
+    private let maxCharacters = 500
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // Content
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("What's happening?")
-                            .font(.headline)
-                        TextEditor(text: $content)
-                            .frame(minHeight: 120)
-                            .padding(8)
-                            .background(Color(.systemGray6))
-                            .cornerRadius(8)
-                    }
-
-                    // Source
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Source")
-                            .font(.headline)
-                        HStack(spacing: 12) {
-                            SourceButton(type: .firsthand, selected: sourceType == .firsthand) {
-                                sourceType = .firsthand
-                            }
-                            SourceButton(type: .aggregated, selected: sourceType == .aggregated) {
-                                sourceType = .aggregated
-                            }
-                            SourceButton(type: .mainstream, selected: sourceType == .mainstream) {
-                                sourceType = .mainstream
+            Form {
+                // Content Section
+                Section("Content") {
+                    TextEditor(text: $content)
+                        .frame(minHeight: 100)
+                        .onChange(of: content) { _, newValue in
+                            if newValue.count > maxCharacters {
+                                content = String(newValue.prefix(maxCharacters))
                             }
                         }
-                    }
 
-                    // Urgency
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Urgency")
-                            .font(.headline)
-                        HStack(spacing: 8) {
-                            ForEach(1...5, id: \.self) { level in
-                                Button(action: { urgency = min(3, max(1, (level + 1) / 2)) }) {
-                                    Circle()
-                                        .fill(dotColor(for: level))
-                                        .frame(width: 24, height: 24)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            Spacer()
-                            Text(urgencyLabel)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                    HStack {
+                        Spacer()
+                        Text("\(content.count)/\(maxCharacters)")
+                            .font(.caption)
+                            .foregroundColor(content.count > maxCharacters - 50 ? .orange : .secondary)
                     }
-
-                    // Location
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Location")
-                            .font(.headline)
-                        HStack {
-                            Image(systemName: "location.fill")
-                                .foregroundColor(.orange)
-                            TextField("Add location (optional)", text: $locationName)
-                        }
-                        .padding(12)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(8)
-                    }
-
-                    Spacer()
                 }
-                .padding()
+
+                // Source Section
+                Section("Source") {
+                    Picker("Source Type", selection: $sourceType) {
+                        Label("Firsthand", systemImage: "eye.fill").tag(SourceType.firsthand)
+                        Label("Aggregated", systemImage: "arrow.triangle.merge").tag(SourceType.aggregated)
+                        Label("Mainstream", systemImage: "newspaper.fill").tag(SourceType.mainstream)
+                    }
+                    .tint(.orange)
+
+                    Text(sourceDescription)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                // Urgency Section
+                Section("Urgency Level") {
+                    HStack {
+                        Text("Urgency: \(urgency)")
+                        Spacer()
+                        Stepper("", value: $urgency, in: 1...3)
+                            .labelsHidden()
+                    }
+
+                    HStack {
+                        ForEach(1...5, id: \.self) { dot in
+                            Circle()
+                                .fill(dotColor(for: dot))
+                                .frame(width: 12, height: 12)
+                        }
+                        Spacer()
+                        Text(urgencyLabel)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Location Section
+                Section("Location") {
+                    Toggle("Include Location", isOn: $includeLocation)
+                        .tint(.orange)
+
+                    if includeLocation {
+                        TextField("Location name (optional)", text: $locationName)
+
+                        Button(action: getCurrentLocation) {
+                            Text("Get Current Location")
+                                .foregroundColor(.orange)
+                        }
+                    }
+
+                    Text("Location helps others nearby see relevant posts.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             .navigationTitle("New Post")
             .navigationBarTitleDisplayMode(.inline)
@@ -395,7 +404,15 @@ struct ComposePostView: View {
         }
     }
 
-    private func dotColor(for level: Int) -> Color {
+    private var sourceDescription: String {
+        switch sourceType {
+        case .firsthand: return "You witnessed this directly"
+        case .aggregated: return "Information gathered from multiple sources"
+        case .mainstream: return "From mainstream news outlets"
+        }
+    }
+
+    private func dotColor(for dot: Int) -> Color {
         let filledDots: Int
         switch urgency {
         case 1: filledDots = 1
@@ -404,7 +421,7 @@ struct ComposePostView: View {
         default: filledDots = 1
         }
 
-        if level <= filledDots {
+        if dot <= filledDots {
             switch urgency {
             case 1: return .green
             case 2: return .yellow
@@ -424,70 +441,23 @@ struct ComposePostView: View {
         }
     }
 
+    private func getCurrentLocation() {
+        // TODO: Implement location services
+    }
+
     private func submitPost() {
         isSubmitting = true
         Task {
             let success = await feedService.createPost(
                 content: content.trimmingCharacters(in: .whitespacesAndNewlines),
                 sourceType: sourceType,
-                locationName: locationName.isEmpty ? nil : locationName,
+                locationName: includeLocation && !locationName.isEmpty ? locationName : nil,
                 urgency: urgency
             )
             if success {
                 dismiss()
             }
             isSubmitting = false
-        }
-    }
-}
-
-struct SourceButton: View {
-    let type: SourceType
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.title2)
-                Text(label)
-                    .font(.caption)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(selected ? color.opacity(0.15) : Color(.systemGray6))
-            .foregroundColor(selected ? color : .secondary)
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(selected ? color : Color.clear, lineWidth: 2)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var icon: String {
-        switch type {
-        case .firsthand: return "eye.fill"
-        case .aggregated: return "arrow.triangle.merge"
-        case .mainstream: return "newspaper.fill"
-        }
-    }
-
-    private var label: String {
-        switch type {
-        case .firsthand: return "Firsthand"
-        case .aggregated: return "Aggregated"
-        case .mainstream: return "News"
-        }
-    }
-
-    private var color: Color {
-        switch type {
-        case .firsthand: return .green
-        case .aggregated: return .blue
-        case .mainstream: return .purple
         }
     }
 }
