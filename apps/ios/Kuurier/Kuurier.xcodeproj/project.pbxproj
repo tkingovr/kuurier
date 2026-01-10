@@ -1,0 +1,480 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		52E7DAFA2F1151EC00CCA28A /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAEA2F1151EC00CCA28A /* APIClient.swift */; };
+		52E7DAFB2F1151EC00CCA28A /* KuurierApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAE42F1151EC00CCA28A /* KuurierApp.swift */; };
+		52E7DAFC2F1151EC00CCA28A /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAE82F1151EC00CCA28A /* Models.swift */; };
+		52E7DAFD2F1151EC00CCA28A /* SecureStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAEC2F1151EC00CCA28A /* SecureStorage.swift */; };
+		52E7DAFE2F1151EC00CCA28A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAE32F1151EC00CCA28A /* ContentView.swift */; };
+		52E7DAFF2F1151EC00CCA28A /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAF02F1151EC00CCA28A /* AuthService.swift */; };
+		52E7DB002F1151EC00CCA28A /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DAE62F1151EC00CCA28A /* KeyManager.swift */; };
+		52E7DB012F1151ED00CCA28A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 52E7DAF82F1151EC00CCA28A /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		52E7DAD52F11519D00CCA28A /* Kuurier.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kuurier.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		52E7DAE32F1151EC00CCA28A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		52E7DAE42F1151EC00CCA28A /* KuurierApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KuurierApp.swift; sourceTree = "<group>"; };
+		52E7DAE62F1151EC00CCA28A /* KeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyManager.swift; sourceTree = "<group>"; };
+		52E7DAE82F1151EC00CCA28A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		52E7DAEA2F1151EC00CCA28A /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		52E7DAEC2F1151EC00CCA28A /* SecureStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStorage.swift; sourceTree = "<group>"; };
+		52E7DAF02F1151EC00CCA28A /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		52E7DAF82F1151EC00CCA28A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		52E7DAD22F11519D00CCA28A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		52E7DACC2F11519D00CCA28A = {
+			isa = PBXGroup;
+			children = (
+				52E7DAD62F11519D00CCA28A /* Products */,
+				52E7DAF92F1151EC00CCA28A /* Kuurier */,
+			);
+			sourceTree = "<group>";
+		};
+		52E7DAD62F11519D00CCA28A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAD52F11519D00CCA28A /* Kuurier.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		52E7DAE52F1151EC00CCA28A /* App */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAE32F1151EC00CCA28A /* ContentView.swift */,
+				52E7DAE42F1151EC00CCA28A /* KuurierApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		52E7DAE72F1151EC00CCA28A /* Crypto */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAE62F1151EC00CCA28A /* KeyManager.swift */,
+			);
+			path = Crypto;
+			sourceTree = "<group>";
+		};
+		52E7DAE92F1151EC00CCA28A /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAE82F1151EC00CCA28A /* Models.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		52E7DAEB2F1151EC00CCA28A /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAEA2F1151EC00CCA28A /* APIClient.swift */,
+			);
+			path = Network;
+			sourceTree = "<group>";
+		};
+		52E7DAED2F1151EC00CCA28A /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAEC2F1151EC00CCA28A /* SecureStorage.swift */,
+			);
+			path = Storage;
+			sourceTree = "<group>";
+		};
+		52E7DAEE2F1151EC00CCA28A /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAE72F1151EC00CCA28A /* Crypto */,
+				52E7DAE92F1151EC00CCA28A /* Models */,
+				52E7DAEB2F1151EC00CCA28A /* Network */,
+				52E7DAED2F1151EC00CCA28A /* Storage */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		52E7DAEF2F1151EC00CCA28A /* Alerts */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Alerts;
+			sourceTree = "<group>";
+		};
+		52E7DAF12F1151EC00CCA28A /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAF02F1151EC00CCA28A /* AuthService.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		52E7DAF22F1151EC00CCA28A /* Events */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Events;
+			sourceTree = "<group>";
+		};
+		52E7DAF32F1151EC00CCA28A /* Feed */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Feed;
+			sourceTree = "<group>";
+		};
+		52E7DAF42F1151EC00CCA28A /* Map */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Map;
+			sourceTree = "<group>";
+		};
+		52E7DAF52F1151EC00CCA28A /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		52E7DAF62F1151EC00CCA28A /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAEF2F1151EC00CCA28A /* Alerts */,
+				52E7DAF12F1151EC00CCA28A /* Auth */,
+				52E7DAF22F1151EC00CCA28A /* Events */,
+				52E7DAF32F1151EC00CCA28A /* Feed */,
+				52E7DAF42F1151EC00CCA28A /* Map */,
+				52E7DAF52F1151EC00CCA28A /* Settings */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		52E7DAF72F1151EC00CCA28A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		52E7DAF92F1151EC00CCA28A /* Kuurier */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DAE52F1151EC00CCA28A /* App */,
+				52E7DAEE2F1151EC00CCA28A /* Core */,
+				52E7DAF62F1151EC00CCA28A /* Features */,
+				52E7DAF72F1151EC00CCA28A /* Resources */,
+				52E7DAF82F1151EC00CCA28A /* Assets.xcassets */,
+			);
+			path = Kuurier;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		52E7DAD42F11519D00CCA28A /* Kuurier */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 52E7DAE02F1151A000CCA28A /* Build configuration list for PBXNativeTarget "Kuurier" */;
+			buildPhases = (
+				52E7DAD12F11519D00CCA28A /* Sources */,
+				52E7DAD22F11519D00CCA28A /* Frameworks */,
+				52E7DAD32F11519D00CCA28A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Kuurier;
+			packageProductDependencies = (
+			);
+			productName = Kuurier;
+			productReference = 52E7DAD52F11519D00CCA28A /* Kuurier.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		52E7DACD2F11519D00CCA28A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					52E7DAD42F11519D00CCA28A = {
+						CreatedOnToolsVersion = 26.2;
+					};
+				};
+			};
+			buildConfigurationList = 52E7DAD02F11519D00CCA28A /* Build configuration list for PBXProject "Kuurier" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 52E7DACC2F11519D00CCA28A;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 52E7DAD62F11519D00CCA28A /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				52E7DAD42F11519D00CCA28A /* Kuurier */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		52E7DAD32F11519D00CCA28A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				52E7DB012F1151ED00CCA28A /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		52E7DAD12F11519D00CCA28A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				52E7DAFA2F1151EC00CCA28A /* APIClient.swift in Sources */,
+				52E7DAFB2F1151EC00CCA28A /* KuurierApp.swift in Sources */,
+				52E7DAFC2F1151EC00CCA28A /* Models.swift in Sources */,
+				52E7DAFD2F1151EC00CCA28A /* SecureStorage.swift in Sources */,
+				52E7DAFE2F1151EC00CCA28A /* ContentView.swift in Sources */,
+				52E7DAFF2F1151EC00CCA28A /* AuthService.swift in Sources */,
+				52E7DB002F1151EC00CCA28A /* KeyManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		52E7DADE2F1151A000CCA28A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = U7QJ5RPT9D;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		52E7DADF2F1151A000CCA28A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = U7QJ5RPT9D;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		52E7DAE12F1151A000CCA28A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = U7QJ5RPT9D;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kuurier.ios.app.Kuurier;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		52E7DAE22F1151A000CCA28A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = U7QJ5RPT9D;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kuurier.ios.app.Kuurier;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		52E7DAD02F11519D00CCA28A /* Build configuration list for PBXProject "Kuurier" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				52E7DADE2F1151A000CCA28A /* Debug */,
+				52E7DADF2F1151A000CCA28A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		52E7DAE02F1151A000CCA28A /* Build configuration list for PBXNativeTarget "Kuurier" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				52E7DAE12F1151A000CCA28A /* Debug */,
+				52E7DAE22F1151A000CCA28A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 52E7DACD2F11519D00CCA28A /* Project object */;
+}

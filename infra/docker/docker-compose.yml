@@ -1,0 +1,83 @@
+services:
+  # PostgreSQL with PostGIS for geospatial features
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: kuurier-postgres
+    environment:
+      POSTGRES_USER: kuurier
+      POSTGRES_PASSWORD: kuurier_dev_password
+      POSTGRES_DB: kuurier
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kuurier"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching, rate limiting, and pub/sub
+  redis:
+    image: redis:7-alpine
+    container_name: kuurier-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO for S3-compatible object storage (media files)
+  minio:
+    image: minio/minio:latest
+    container_name: kuurier-minio
+    environment:
+      MINIO_ROOT_USER: kuurier_admin
+      MINIO_ROOT_PASSWORD: kuurier_minio_password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Kuurier API server
+  api:
+    build:
+      context: ../../server
+      dockerfile: ../infra/docker/Dockerfile.server
+    container_name: kuurier-api
+    environment:
+      PORT: "8080"
+      ENVIRONMENT: development
+      DATABASE_URL: postgres://kuurier:kuurier_dev_password@postgres:5432/kuurier?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      ENCRYPTION_KEY: dev-encryption-key-32-bytes!!
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+
+networks:
+  default:
+    name: kuurier-network
