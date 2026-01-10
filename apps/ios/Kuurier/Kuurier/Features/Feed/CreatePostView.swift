@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import Combine
 
 /// View for creating a new post
 struct CreatePostView: View {

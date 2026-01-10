@@ -65,24 +65,15 @@ final class FeedService: ObservableObject {
         locationName: String? = nil,
         urgency: Int = 1
     ) async throws {
-        var body: [String: Any] = [
-            "content": content,
-            "source_type": sourceType.rawValue,
-            "urgency": urgency
-        ]
-
-        if !topicIds.isEmpty {
-            body["topic_ids"] = topicIds
-        }
-
-        if let lat = latitude, let lon = longitude {
-            body["latitude"] = lat
-            body["longitude"] = lon
-        }
-
-        if let name = locationName {
-            body["location_name"] = name
-        }
+        let body = CreatePostRequest(
+            content: content,
+            sourceType: sourceType.rawValue,
+            topicIds: topicIds.isEmpty ? nil : topicIds,
+            latitude: latitude,
+            longitude: longitude,
+            locationName: locationName,
+            urgency: urgency
+        )
 
         let _: Post = try await api.post("/feed/posts", body: body)
 
@@ -101,4 +92,16 @@ final class FeedService: ObservableObject {
             self.error = error.localizedDescription
         }
     }
+}
+
+// MARK: - Request Types
+
+private struct CreatePostRequest: Encodable {
+    let content: String
+    let sourceType: String
+    let topicIds: [String]?
+    let latitude: Double?
+    let longitude: Double?
+    let locationName: String?
+    let urgency: Int
 }
