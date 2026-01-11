@@ -113,12 +113,13 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *
 			{
 				eventRoutes.GET("", eventsHandler.ListEvents)
 				eventRoutes.POST("", eventsHandler.CreateEvent)
+				eventRoutes.GET("/map", eventsHandler.GetPublicEventsForMap) // Public events for map display
+				eventRoutes.GET("/nearby", eventsHandler.GetNearbyEvents)
 				eventRoutes.GET("/:id", eventsHandler.GetEvent)
 				eventRoutes.PUT("/:id", eventsHandler.UpdateEvent)
 				eventRoutes.DELETE("/:id", eventsHandler.DeleteEvent)
 				eventRoutes.POST("/:id/rsvp", eventsHandler.RSVP)
 				eventRoutes.DELETE("/:id/rsvp", eventsHandler.CancelRSVP)
-				eventRoutes.GET("/nearby", eventsHandler.GetNearbyEvents)
 			}
 
 			// Alert routes (SOS system)

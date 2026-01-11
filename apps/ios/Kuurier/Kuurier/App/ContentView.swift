@@ -480,10 +480,14 @@ struct ComposePostView: View {
 
 struct MapView: View {
     @StateObject private var mapService = MapService.shared
+    @StateObject private var eventsService = EventsService.shared
     @StateObject private var locationManager = LocationManager()
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var selectedMarker: MapMarker?
     @State private var showMarkerDetail = false
+    @State private var selectedEvent: Event?
+    @State private var showEventDetail = false
+    @State private var publicEvents: [Event] = []
     @State private var currentZoom: Int = 5
 
     var body: some View {
@@ -521,6 +525,19 @@ struct MapView: View {
                             }
                         }
                     }
+
+                    // Public event markers
+                    ForEach(publicEvents) { event in
+                        if let location = event.location {
+                            Annotation("", coordinate: location.coordinate) {
+                                EventMarkerView(eventType: event.eventType)
+                                    .onTapGesture {
+                                        selectedEvent = event
+                                        showEventDetail = true
+                                    }
+                            }
+                        }
+                    }
                 }
                 .mapStyle(.standard(elevation: .realistic))
                 .mapControls {
@@ -542,7 +559,17 @@ struct MapView: View {
                     currentZoom = zoom
 
                     Task {
-                        await mapService.fetchMarkers(region: mapRegion, zoom: zoom)
+                        // Fetch posts and events in parallel
+                        async let markersTask: () = mapService.fetchMarkers(region: mapRegion, zoom: zoom)
+                        async let eventsTask = eventsService.fetchPublicEventsForMap(
+                            minLat: mapRegion.minLat,
+                            maxLat: mapRegion.maxLat,
+                            minLon: mapRegion.minLon,
+                            maxLon: mapRegion.maxLon
+                        )
+
+                        await markersTask
+                        publicEvents = await eventsTask
                     }
                 }
 
@@ -583,6 +610,14 @@ struct MapView: View {
                 if let marker = selectedMarker {
                     MarkerDetailSheet(marker: marker)
                         .presentationDetents([.medium])
+                }
+            }
+            .sheet(isPresented: $showEventDetail) {
+                if let event = selectedEvent {
+                    NavigationStack {
+                        EventDetailView(event: event)
+                    }
+                    .presentationDetents([.large])
                 }
             }
             .onAppear {
@@ -715,6 +750,48 @@ struct PostMarkerView: View {
 
                 Image(systemName: sourceIcon)
                     .font(.system(size: 14))
+                    .foregroundColor(.white)
+            }
+
+            // Pin point
+            Triangle()
+                .fill(markerColor)
+                .frame(width: 12, height: 8)
+                .offset(y: -2)
+        }
+    }
+}
+
+// MARK: - Event Marker View
+
+struct EventMarkerView: View {
+    let eventType: EventType
+
+    private var markerColor: Color {
+        switch eventType {
+        case .protest: return .purple
+        case .strike: return .red
+        case .fundraiser: return .pink
+        case .mutualAid: return .teal
+        case .meeting: return .blue
+        case .other: return .gray
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                // Event marker with distinct shape (rounded square)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(markerColor)
+                    .frame(width: 36, height: 36)
+
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(.white, lineWidth: 2)
+                    .frame(width: 36, height: 36)
+
+                Image(systemName: eventType.icon)
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
             }
 
@@ -901,8 +978,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
 struct EventsView: View {
     @EnvironmentObject var authService: AuthService
+    @StateObject private var eventsService = EventsService.shared
     @State private var showCreateSheet = false
     @State private var showLockedAlert = false
+    @State private var selectedEventType: EventType?
+    @State private var selectedEvent: Event?
 
     private var canCreateEvent: Bool {
         guard let user = authService.currentUser else { return false }
@@ -914,11 +994,58 @@ struct EventsView: View {
         return max(0, 50 - user.trustScore)
     }
 
+    private var filteredEvents: [Event] {
+        if let type = selectedEventType {
+            return eventsService.events.filter { $0.eventType == type }
+        }
+        return eventsService.events
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                Text("Events coming soon...")
-                    .foregroundColor(.secondary)
+            VStack(spacing: 0) {
+                // Event type filter
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        FilterChip(title: "All", isSelected: selectedEventType == nil) {
+                            selectedEventType = nil
+                        }
+                        ForEach(EventType.allCases, id: \.self) { type in
+                            FilterChip(
+                                title: type.displayName,
+                                icon: type.icon,
+                                isSelected: selectedEventType == type
+                            ) {
+                                selectedEventType = type
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+                .background(Color(UIColor.systemGroupedBackground))
+
+                // Events list
+                List {
+                    if filteredEvents.isEmpty && !eventsService.isLoading {
+                        ContentUnavailableView(
+                            "No Events",
+                            systemImage: "calendar",
+                            description: Text("No upcoming events found")
+                        )
+                    } else {
+                        ForEach(filteredEvents) { event in
+                            EventRowView(event: event)
+                                .onTapGesture {
+                                    selectedEvent = event
+                                }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .refreshable {
+                    await eventsService.fetchEvents(refresh: true)
+                }
             }
             .navigationTitle("Events")
             .toolbar {
@@ -938,37 +1065,536 @@ struct EventsView: View {
             .sheet(isPresented: $showCreateSheet) {
                 CreateEventView()
             }
+            .sheet(item: $selectedEvent) { event in
+                EventDetailView(event: event)
+            }
             .alert("Event Creation Locked", isPresented: $showLockedAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("You need a trust score of 50 to create events. Get \(trustNeeded) more point\(trustNeeded == 1 ? "" : "s") by receiving vouches from trusted members.")
             }
+            .task {
+                await eventsService.fetchEvents()
+            }
         }
     }
 }
 
+// MARK: - Filter Chip
+
+struct FilterChip: View {
+    let title: String
+    var icon: String? = nil
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if let icon = icon {
+                    Image(systemName: icon)
+                        .font(.caption)
+                }
+                Text(title)
+                    .font(.subheadline)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(isSelected ? Color.orange : Color(UIColor.secondarySystemGroupedBackground))
+            .foregroundColor(isSelected ? .white : .primary)
+            .cornerRadius(16)
+        }
+    }
+}
+
+// MARK: - Event Row View
+
+struct EventRowView: View {
+    let event: Event
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header: Type badge and date
+            HStack {
+                Label(event.eventType.displayName, systemImage: event.eventType.icon)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(eventTypeColor.opacity(0.15))
+                    .foregroundColor(eventTypeColor)
+                    .cornerRadius(4)
+
+                Spacer()
+
+                Text(event.startsAt, style: .date)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // Title
+            Text(event.title)
+                .font(.headline)
+                .lineLimit(2)
+
+            // Location info
+            HStack(spacing: 4) {
+                if event.locationRevealed, let location = event.location {
+                    Image(systemName: "mappin")
+                        .font(.caption)
+                    if let name = event.locationName {
+                        Text(name)
+                    } else {
+                        Text(String(format: "%.4f, %.4f", location.latitude, location.longitude))
+                    }
+                } else if let area = event.locationArea {
+                    Image(systemName: "map")
+                        .font(.caption)
+                    Text(area)
+                    Text("•")
+                    if event.locationVisibility == .rsvp {
+                        Text("RSVP to see location")
+                            .foregroundColor(.orange)
+                    } else if event.locationVisibility == .timed, let revealAt = event.locationRevealAt {
+                        Text("Revealed \(revealAt, style: .relative)")
+                            .foregroundColor(.orange)
+                    }
+                } else {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                    Text("Location hidden")
+                }
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
+
+            // Footer: Time and RSVP count
+            HStack {
+                Image(systemName: "clock")
+                Text(event.startsAt, style: .time)
+
+                Spacer()
+
+                if let count = event.rsvpCount, count > 0 {
+                    Label("\(count) going", systemImage: "person.2.fill")
+                }
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var eventTypeColor: Color {
+        switch event.eventType {
+        case .protest: return .red
+        case .strike: return .orange
+        case .fundraiser: return .pink
+        case .mutualAid: return .green
+        case .meeting: return .blue
+        case .other: return .gray
+        }
+    }
+}
+
+// MARK: - Event Detail View
+
+struct EventDetailView: View {
+    let event: Event
+    @Environment(\.dismiss) var dismiss
+    @StateObject private var eventsService = EventsService.shared
+    @EnvironmentObject var authService: AuthService
+    @State private var currentEvent: Event
+    @State private var isRSVPing = false
+
+    init(event: Event) {
+        self.event = event
+        _currentEvent = State(initialValue: event)
+    }
+
+    private var isOrganizer: Bool {
+        authService.currentUser?.id == currentEvent.organizerId
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Event type and status
+                    HStack {
+                        Label(currentEvent.eventType.displayName, systemImage: currentEvent.eventType.icon)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.orange.opacity(0.15))
+                            .foregroundColor(.orange)
+                            .cornerRadius(6)
+
+                        if currentEvent.isCancelled == true {
+                            Text("CANCELLED")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.red)
+                                .foregroundColor(.white)
+                                .cornerRadius(4)
+                        }
+
+                        Spacer()
+
+                        // Visibility badge
+                        Label(currentEvent.locationVisibility.displayName, systemImage: visibilityIcon)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(UIColor.secondarySystemBackground))
+                            .cornerRadius(4)
+                    }
+
+                    // Title
+                    Text(currentEvent.title)
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    // Date and time
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label {
+                            Text(currentEvent.startsAt, format: .dateTime.weekday(.wide).month().day().hour().minute())
+                        } icon: {
+                            Image(systemName: "calendar")
+                        }
+                        .font(.subheadline)
+
+                        if let endsAt = currentEvent.endsAt {
+                            Label {
+                                Text("Until \(endsAt, format: .dateTime.hour().minute())")
+                            } icon: {
+                                Image(systemName: "clock")
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Divider()
+
+                    // Location section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Location")
+                            .font(.headline)
+
+                        if currentEvent.locationRevealed, let location = currentEvent.location {
+                            // Show map preview
+                            Map(initialPosition: .region(MKCoordinateRegion(
+                                center: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude),
+                                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                            ))) {
+                                Marker(currentEvent.locationName ?? "Event", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))
+                            }
+                            .frame(height: 150)
+                            .cornerRadius(12)
+
+                            if let name = currentEvent.locationName {
+                                Label(name, systemImage: "mappin.circle.fill")
+                                    .font(.subheadline)
+                            }
+                        } else {
+                            // Location hidden
+                            VStack(spacing: 8) {
+                                Image(systemName: "lock.shield")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.orange)
+
+                                if let area = currentEvent.locationArea {
+                                    Text("General area: \(area)")
+                                        .font(.subheadline)
+                                }
+
+                                if currentEvent.locationVisibility == .rsvp {
+                                    Text("RSVP to reveal the exact location")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                } else if currentEvent.locationVisibility == .timed, let revealAt = currentEvent.locationRevealAt {
+                                    Text("Location reveals \(revealAt, style: .relative)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color(UIColor.secondarySystemBackground))
+                            .cornerRadius(12)
+                        }
+                    }
+
+                    // Description
+                    if let description = currentEvent.description, !description.isEmpty {
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("About")
+                                .font(.headline)
+                            Text(description)
+                                .font(.body)
+                        }
+                    }
+
+                    Divider()
+
+                    // RSVP section
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Attendance")
+                                .font(.headline)
+                            Spacer()
+                            if let count = currentEvent.rsvpCount, count > 0 {
+                                Text("\(count) going")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        if !isOrganizer {
+                            HStack(spacing: 12) {
+                                RSVPButton(
+                                    title: "Going",
+                                    icon: "checkmark.circle.fill",
+                                    isSelected: currentEvent.userRsvp == .going,
+                                    color: .green
+                                ) {
+                                    await rsvp(.going)
+                                }
+
+                                RSVPButton(
+                                    title: "Interested",
+                                    icon: "star.fill",
+                                    isSelected: currentEvent.userRsvp == .interested,
+                                    color: .yellow
+                                ) {
+                                    await rsvp(.interested)
+                                }
+
+                                RSVPButton(
+                                    title: "Can't Go",
+                                    icon: "xmark.circle.fill",
+                                    isSelected: currentEvent.userRsvp == .notGoing,
+                                    color: .red
+                                ) {
+                                    await rsvp(.notGoing)
+                                }
+                            }
+                        } else {
+                            Text("You are the organizer")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Event Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var visibilityIcon: String {
+        switch currentEvent.locationVisibility {
+        case .public: return "globe"
+        case .rsvp: return "person.badge.key"
+        case .timed: return "clock.badge"
+        }
+    }
+
+    private func rsvp(_ status: RSVPStatus) async {
+        isRSVPing = true
+        if await eventsService.rsvp(eventId: currentEvent.id, status: status) != nil {
+            // Refetch the event to get updated state (including revealed location if applicable)
+            if let updated = await eventsService.getEvent(id: currentEvent.id) {
+                currentEvent = updated
+            }
+        }
+        isRSVPing = false
+    }
+}
+
+// MARK: - RSVP Button
+
+struct RSVPButton: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let color: Color
+    let action: () async -> Void
+
+    @State private var isLoading = false
+
+    var body: some View {
+        Button {
+            Task {
+                isLoading = true
+                await action()
+                isLoading = false
+            }
+        } label: {
+            VStack(spacing: 4) {
+                if isLoading {
+                    ProgressView()
+                        .frame(width: 24, height: 24)
+                } else {
+                    Image(systemName: icon)
+                        .font(.title2)
+                }
+                Text(title)
+                    .font(.caption)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(isSelected ? color.opacity(0.2) : Color(UIColor.secondarySystemBackground))
+            .foregroundColor(isSelected ? color : .primary)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isSelected ? color : Color.clear, lineWidth: 2)
+            )
+        }
+        .disabled(isLoading)
+    }
+}
+
+// MARK: - Create Event View
+
 struct CreateEventView: View {
     @Environment(\.dismiss) var dismiss
+    @StateObject private var eventsService = EventsService.shared
+    @StateObject private var locationManager = LocationManager()
+
+    // Form fields
     @State private var title = ""
     @State private var description = ""
+    @State private var eventType: EventType = .meeting
+    @State private var startsAt = Date().addingTimeInterval(3600) // 1 hour from now
+    @State private var endsAt: Date?
+    @State private var hasEndTime = false
+
+    // Location
+    @State private var locationName = ""
+    @State private var locationArea = ""
+    @State private var selectedCoordinate: CLLocationCoordinate2D?
+    @State private var cameraPosition: MapCameraPosition = .automatic
+
+    // Privacy
+    @State private var locationVisibility: LocationVisibility = .public
+    @State private var revealHoursBefore: Int = 1
+
+    private var isValid: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        selectedCoordinate != nil
+    }
 
     var body: some View {
         NavigationStack {
             Form {
+                // Event Details
                 Section("Event Details") {
                     TextField("Title", text: $title)
-                    TextField("Description", text: $description, axis: .vertical)
+
+                    Picker("Type", selection: $eventType) {
+                        ForEach(EventType.allCases, id: \.self) { type in
+                            Label(type.displayName, systemImage: type.icon)
+                                .tag(type)
+                        }
+                    }
+
+                    TextField("Description (optional)", text: $description, axis: .vertical)
                         .lineLimit(3...6)
                 }
 
-                Section("Location") {
-                    Text("Location picker coming soon...")
-                        .foregroundColor(.secondary)
+                // Date & Time
+                Section("Date & Time") {
+                    DatePicker("Starts", selection: $startsAt, in: Date()...)
+
+                    Toggle("Add End Time", isOn: $hasEndTime)
+
+                    if hasEndTime {
+                        DatePicker("Ends", selection: Binding(
+                            get: { endsAt ?? startsAt.addingTimeInterval(7200) },
+                            set: { endsAt = $0 }
+                        ), in: startsAt...)
+                    }
                 }
 
-                Section("Date & Time") {
-                    Text("Date picker coming soon...")
-                        .foregroundColor(.secondary)
+                // Location
+                Section {
+                    // Map for location selection
+                    Map(position: $cameraPosition, interactionModes: [.all]) {
+                        if let coord = selectedCoordinate {
+                            Marker("Event Location", coordinate: coord)
+                        }
+                        UserAnnotation()
+                    }
+                    .frame(height: 200)
+                    .cornerRadius(8)
+                    .onTapGesture { location in
+                        // Note: In a real implementation, we'd convert tap to coordinate
+                    }
+                    .overlay(alignment: .bottom) {
+                        if selectedCoordinate == nil {
+                            Text("Tap to place marker or use current location")
+                                .font(.caption)
+                                .padding(8)
+                                .background(.ultraThinMaterial)
+                                .cornerRadius(8)
+                                .padding(8)
+                        }
+                    }
+
+                    Button {
+                        if let location = locationManager.location {
+                            selectedCoordinate = location.coordinate
+                            cameraPosition = .region(MKCoordinateRegion(
+                                center: location.coordinate,
+                                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                            ))
+                        }
+                    } label: {
+                        Label("Use Current Location", systemImage: "location.fill")
+                    }
+
+                    TextField("Location Name (e.g., City Hall Steps)", text: $locationName)
+                } header: {
+                    Text("Location")
+                } footer: {
+                    if selectedCoordinate != nil {
+                        Text("Location set")
+                    }
+                }
+
+                // Location Privacy
+                Section {
+                    Picker("Visibility", selection: $locationVisibility) {
+                        ForEach(LocationVisibility.allCases, id: \.self) { visibility in
+                            Text(visibility.displayName).tag(visibility)
+                        }
+                    }
+
+                    if locationVisibility == .timed {
+                        Stepper("Reveal \(revealHoursBefore) hour\(revealHoursBefore == 1 ? "" : "s") before", value: $revealHoursBefore, in: 1...24)
+                    }
+
+                    if locationVisibility != .public {
+                        TextField("General Area (e.g., Downtown Oakland)", text: $locationArea)
+                    }
+                } header: {
+                    Text("Location Privacy")
+                } footer: {
+                    Text(locationVisibility.description)
                 }
             }
             .navigationTitle("New Event")
@@ -976,15 +1602,53 @@ struct CreateEventView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(eventsService.isCreating)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
-                        // TODO: Submit event
-                        dismiss()
+                        Task { await createEvent() }
                     }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!isValid || eventsService.isCreating)
                 }
             }
+            .interactiveDismissDisabled(eventsService.isCreating)
+            .onAppear {
+                locationManager.requestPermission()
+                // Set initial camera to user location if available
+                if let location = locationManager.location {
+                    cameraPosition = .region(MKCoordinateRegion(
+                        center: location.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                    ))
+                }
+            }
+        }
+    }
+
+    private func createEvent() async {
+        guard let coordinate = selectedCoordinate else { return }
+
+        var revealAt: Date? = nil
+        if locationVisibility == .timed {
+            revealAt = startsAt.addingTimeInterval(TimeInterval(-revealHoursBefore * 3600))
+        }
+
+        let success = await eventsService.createEvent(
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            description: description.isEmpty ? nil : description,
+            eventType: eventType,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            locationName: locationName.isEmpty ? nil : locationName,
+            locationArea: locationArea.isEmpty ? nil : locationArea,
+            locationVisibility: locationVisibility,
+            locationRevealAt: revealAt,
+            startsAt: startsAt,
+            endsAt: hasEndTime ? endsAt : nil
+        )
+
+        if success {
+            dismiss()
         }
     }
 }

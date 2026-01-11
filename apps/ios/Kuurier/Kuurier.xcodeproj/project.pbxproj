@@ -19,6 +19,7 @@
 		52E7DB062F1151EC00CCA28A /* InvitesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB032F1151EC00CCA28A /* InvitesView.swift */; };
 		52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB082F1152EC00CCA28A /* FeedService.swift */; };
 		52E7DB092F115A0000CCA28A /* MapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0A2F115A0000CCA28A /* MapService.swift */; };
+		52E7DB0C2F115B0000CCA28A /* EventsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0B2F115B0000CCA28A /* EventsService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +36,7 @@
 		52E7DB032F1151EC00CCA28A /* InvitesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitesView.swift; sourceTree = "<group>"; };
 		52E7DB082F1152EC00CCA28A /* FeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedService.swift; sourceTree = "<group>"; };
 		52E7DB0A2F115A0000CCA28A /* MapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapService.swift; sourceTree = "<group>"; };
+		52E7DB0B2F115B0000CCA28A /* EventsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventsService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -134,6 +136,7 @@
 		52E7DAF22F1151EC00CCA28A /* Events */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DB0B2F115B0000CCA28A /* EventsService.swift */,
 			);
 			path = Events;
 			sourceTree = "<group>";
@@ -286,6 +289,7 @@
 				52E7DB062F1151EC00CCA28A /* InvitesView.swift in Sources */,
 				52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */,
 				52E7DB092F115A0000CCA28A /* MapService.swift in Sources */,
+				52E7DB0C2F115B0000CCA28A /* EventsService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
