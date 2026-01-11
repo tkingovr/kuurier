@@ -492,7 +492,9 @@ struct MapView: View {
     @State private var selectedEvent: Event?
     @State private var showEventDetail = false
     @State private var publicEvents: [Event] = []
+    @State private var heatmapCells: [HeatmapCell] = []
     @State private var currentZoom: Int = 5
+    @State private var pulseAnimation = false
 
     var body: some View {
         NavigationStack {
@@ -501,7 +503,17 @@ struct MapView: View {
                     // User location
                     UserAnnotation()
 
-                    // Markers from API
+                    // Heatmap zones - activity hotspots based on post density and urgency
+                    ForEach(heatmapCells, id: \.latitude) { cell in
+                        MapCircle(
+                            center: CLLocationCoordinate2D(latitude: cell.latitude, longitude: cell.longitude),
+                            radius: heatmapRadius(for: currentZoom, count: cell.count)
+                        )
+                        .foregroundStyle(heatmapColor(for: cell).opacity(pulseAnimation && cell.maxUrgency >= 3 ? 0.6 : 0.4))
+                        .stroke(heatmapColor(for: cell), lineWidth: cell.maxUrgency >= 3 ? 3 : 1)
+                    }
+
+                    // Markers from API (clusters/individual posts)
                     ForEach(mapService.markers) { marker in
                         if marker.type == .cluster {
                             // Cluster annotation
@@ -563,7 +575,11 @@ struct MapView: View {
                     currentZoom = zoom
 
                     Task {
-                        // Fetch posts and events in parallel
+                        // Calculate grid size based on zoom level
+                        let gridSize = gridSizeForZoom(zoom)
+
+                        // Fetch heatmap, markers, and events in parallel
+                        async let heatmapTask = mapService.fetchHeatmap(region: mapRegion, gridSize: gridSize)
                         async let markersTask: () = mapService.fetchMarkers(region: mapRegion, zoom: zoom)
                         async let eventsTask = eventsService.fetchPublicEventsForMap(
                             minLat: mapRegion.minLat,
@@ -572,6 +588,7 @@ struct MapView: View {
                             maxLon: mapRegion.maxLon
                         )
 
+                        heatmapCells = await heatmapTask
                         await markersTask
                         publicEvents = await eventsTask
                     }
@@ -626,7 +643,50 @@ struct MapView: View {
             }
             .onAppear {
                 locationManager.requestPermission()
+                // Start pulse animation for high-urgency zones
+                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                    pulseAnimation = true
+                }
             }
+        }
+    }
+
+    // MARK: - Heatmap Helpers
+
+    private func heatmapColor(for cell: HeatmapCell) -> Color {
+        switch cell.maxUrgency {
+        case 3: return .red        // Critical - active crisis
+        case 2: return .orange     // High - significant activity
+        default: return .yellow    // Normal - some activity
+        }
+    }
+
+    private func heatmapRadius(for zoom: Int, count: Int) -> CLLocationDistance {
+        // Radius in meters, scales based on zoom and post count
+        let baseRadius: Double
+        switch zoom {
+        case 0..<4: baseRadius = 500_000   // Very zoomed out - large regions
+        case 4..<8: baseRadius = 200_000   // Continental view
+        case 8..<10: baseRadius = 50_000   // Country view
+        case 10..<12: baseRadius = 20_000  // Region view
+        case 12..<14: baseRadius = 5_000   // City view
+        default: baseRadius = 1_000        // Street view
+        }
+
+        // Scale up based on post count
+        let countMultiplier = 1.0 + min(Double(count) / 10.0, 2.0)
+        return baseRadius * countMultiplier
+    }
+
+    private func gridSizeForZoom(_ zoom: Int) -> Double {
+        // Grid size in degrees for heatmap aggregation
+        switch zoom {
+        case 0..<4: return 5.0    // Very large cells for world view
+        case 4..<6: return 2.0    // Large cells
+        case 6..<8: return 1.0    // Medium cells
+        case 8..<10: return 0.5   // Smaller cells
+        case 10..<12: return 0.1  // City-level
+        default: return 0.05      // Fine detail
         }
     }
 
