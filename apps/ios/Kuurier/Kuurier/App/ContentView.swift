@@ -482,7 +482,11 @@ struct MapView: View {
     @StateObject private var mapService = MapService.shared
     @StateObject private var eventsService = EventsService.shared
     @StateObject private var locationManager = LocationManager()
-    @State private var cameraPosition: MapCameraPosition = .automatic
+    // Start zoomed out to show global view - centered on Middle East/Africa where most activity is
+    @State private var cameraPosition: MapCameraPosition = .region(MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 25.0, longitude: 30.0),
+        span: MKCoordinateSpan(latitudeDelta: 100, longitudeDelta: 150)
+    ))
     @State private var selectedMarker: MapMarker?
     @State private var showMarkerDetail = false
     @State private var selectedEvent: Event?
