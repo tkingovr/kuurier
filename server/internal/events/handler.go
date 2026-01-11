@@ -25,20 +25,45 @@ func NewHandler(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) 
 
 // CreateEventRequest represents a new event
 type CreateEventRequest struct {
-	Title        string   `json:"title" binding:"required,max=200"`
-	Description  string   `json:"description"`
-	EventType    string   `json:"event_type" binding:"required,oneof=protest strike fundraiser mutual_aid meeting other"`
-	Latitude     float64  `json:"latitude" binding:"required"`
-	Longitude    float64  `json:"longitude" binding:"required"`
-	LocationName string   `json:"location_name"`
-	StartsAt     int64    `json:"starts_at" binding:"required"` // Unix timestamp
-	EndsAt       *int64   `json:"ends_at"`
-	TopicIDs     []string `json:"topic_ids"`
+	Title              string   `json:"title" binding:"required,max=200"`
+	Description        string   `json:"description"`
+	EventType          string   `json:"event_type" binding:"required,oneof=protest strike fundraiser mutual_aid meeting other"`
+	Latitude           float64  `json:"latitude" binding:"required"`
+	Longitude          float64  `json:"longitude" binding:"required"`
+	LocationName       string   `json:"location_name"`
+	LocationArea       string   `json:"location_area"`        // General area shown when exact location hidden
+	LocationVisibility string   `json:"location_visibility"`  // public, rsvp, timed
+	LocationRevealAt   *int64   `json:"location_reveal_at"`   // Unix timestamp for timed visibility
+	StartsAt           int64    `json:"starts_at" binding:"required"` // Unix timestamp
+	EndsAt             *int64   `json:"ends_at"`
+	TopicIDs           []string `json:"topic_ids"`
+}
+
+// shouldRevealLocation determines if location should be shown based on visibility settings
+func shouldRevealLocation(visibility string, revealAt *time.Time, userID, organizerID string, hasRSVP bool) bool {
+	switch visibility {
+	case "public":
+		return true
+	case "rsvp":
+		return hasRSVP || userID == organizerID
+	case "timed":
+		if userID == organizerID {
+			return true
+		}
+		if revealAt != nil && time.Now().After(*revealAt) {
+			return true
+		}
+		// Also reveal if user has RSVP'd
+		return hasRSVP
+	default:
+		return true // Default to public for backward compatibility
+	}
 }
 
 // ListEvents returns upcoming events
 func (h *Handler) ListEvents(c *gin.Context) {
 	ctx := c.Request.Context()
+	userID := c.GetString("user_id")
 
 	// Parse filters
 	eventType := c.Query("type")
@@ -50,19 +75,21 @@ func (h *Handler) ListEvents(c *gin.Context) {
 		limit = 100
 	}
 
-	// Base query
+	// Base query - includes location privacy fields
 	query := `
 		SELECT e.id, e.organizer_id, e.title, e.description, e.event_type,
 			   ST_Y(e.location::geometry) as lat, ST_X(e.location::geometry) as lon,
-			   e.location_name, e.starts_at, e.ends_at, e.is_cancelled,
-			   (SELECT COUNT(*) FROM event_rsvps WHERE event_id = e.id AND status = 'going') as rsvp_count
+			   e.location_name, e.location_area, e.location_visibility, e.location_reveal_at,
+			   e.starts_at, e.ends_at, e.is_cancelled,
+			   (SELECT COUNT(*) FROM event_rsvps WHERE event_id = e.id AND status = 'going') as rsvp_count,
+			   EXISTS(SELECT 1 FROM event_rsvps WHERE event_id = e.id AND user_id = $1) as has_rsvp
 		FROM events e
 		WHERE e.starts_at > NOW() - INTERVAL '1 day'
 		  AND e.is_cancelled = false
 	`
 
-	args := []interface{}{}
-	argCount := 0
+	args := []interface{}{userID}
+	argCount := 1
 
 	if eventType != "" {
 		argCount++
@@ -94,32 +121,52 @@ func (h *Handler) ListEvents(c *gin.Context) {
 	var events []gin.H
 	for rows.Next() {
 		var id, organizerID, title, eventType string
-		var description, locationName *string
+		var description, locationName, locationArea *string
+		var locationVisibility string
+		var locationRevealAt *time.Time
 		var lat, lon float64
 		var startsAt time.Time
 		var endsAt *time.Time
-		var isCancelled bool
+		var isCancelled, hasRSVP bool
 		var rsvpCount int
 
-		if err := rows.Scan(&id, &organizerID, &title, &description, &eventType, &lat, &lon, &locationName, &startsAt, &endsAt, &isCancelled, &rsvpCount); err != nil {
+		if err := rows.Scan(&id, &organizerID, &title, &description, &eventType, &lat, &lon,
+			&locationName, &locationArea, &locationVisibility, &locationRevealAt,
+			&startsAt, &endsAt, &isCancelled, &rsvpCount, &hasRSVP); err != nil {
 			continue
 		}
 
 		event := gin.H{
-			"id":           id,
-			"organizer_id": organizerID,
-			"title":        title,
-			"event_type":   eventType,
-			"location":     gin.H{"latitude": lat, "longitude": lon},
-			"starts_at":    startsAt,
-			"rsvp_count":   rsvpCount,
+			"id":                  id,
+			"organizer_id":        organizerID,
+			"title":               title,
+			"event_type":          eventType,
+			"starts_at":           startsAt,
+			"rsvp_count":          rsvpCount,
+			"location_visibility": locationVisibility,
+		}
+
+		// Conditionally include exact location
+		if shouldRevealLocation(locationVisibility, locationRevealAt, userID, organizerID, hasRSVP) {
+			event["location"] = gin.H{"latitude": lat, "longitude": lon}
+			if locationName != nil {
+				event["location_name"] = *locationName
+			}
+			event["location_revealed"] = true
+		} else {
+			event["location_revealed"] = false
+			// Show general area if provided
+			if locationArea != nil {
+				event["location_area"] = *locationArea
+			}
+			// Show when location will be revealed for timed events
+			if locationVisibility == "timed" && locationRevealAt != nil {
+				event["location_reveal_at"] = *locationRevealAt
+			}
 		}
 
 		if description != nil {
 			event["description"] = *description
-		}
-		if locationName != nil {
-			event["location_name"] = *locationName
 		}
 		if endsAt != nil {
 			event["ends_at"] = *endsAt
@@ -166,12 +213,36 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 		endsAt = &t
 	}
 
+	// Default visibility to public
+	visibility := req.LocationVisibility
+	if visibility == "" {
+		visibility = "public"
+	}
+	if visibility != "public" && visibility != "rsvp" && visibility != "timed" {
+		visibility = "public"
+	}
+
+	// For timed visibility, default to 1 hour before event if not specified
+	var revealAt *time.Time
+	if visibility == "timed" {
+		if req.LocationRevealAt != nil {
+			t := time.Unix(*req.LocationRevealAt, 0)
+			revealAt = &t
+		} else {
+			// Default: reveal 1 hour before event starts
+			t := startsAt.Add(-1 * time.Hour)
+			revealAt = &t
+		}
+	}
+
 	locationSQL := "POINT(" + strconv.FormatFloat(req.Longitude, 'f', 6, 64) + " " + strconv.FormatFloat(req.Latitude, 'f', 6, 64) + ")"
 
 	_, err := h.db.Pool().Exec(ctx, `
-		INSERT INTO events (id, organizer_id, title, description, event_type, location, location_name, starts_at, ends_at)
-		VALUES ($1, $2, $3, $4, $5, ST_GeogFromText($6), $7, $8, $9)
-	`, eventID, userID, req.Title, req.Description, req.EventType, locationSQL, req.LocationName, startsAt, endsAt)
+		INSERT INTO events (id, organizer_id, title, description, event_type, location, location_name,
+		                    location_area, location_visibility, location_reveal_at, starts_at, ends_at)
+		VALUES ($1, $2, $3, $4, $5, ST_GeogFromText($6), $7, $8, $9, $10, $11, $12)
+	`, eventID, userID, req.Title, req.Description, req.EventType, locationSQL,
+		req.LocationName, req.LocationArea, visibility, revealAt, startsAt, endsAt)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create event"})
@@ -198,8 +269,9 @@ func (h *Handler) GetEvent(c *gin.Context) {
 	userID := c.GetString("user_id")
 	ctx := c.Request.Context()
 
-	var id, organizerID, title, eventType string
-	var description, locationName *string
+	var id, organizerID, title, eventType, locationVisibility string
+	var description, locationName, locationArea *string
+	var locationRevealAt *time.Time
 	var lat, lon float64
 	var startsAt time.Time
 	var endsAt *time.Time
@@ -208,10 +280,13 @@ func (h *Handler) GetEvent(c *gin.Context) {
 	err := h.db.Pool().QueryRow(ctx, `
 		SELECT e.id, e.organizer_id, e.title, e.description, e.event_type,
 			   ST_Y(e.location::geometry) as lat, ST_X(e.location::geometry) as lon,
-			   e.location_name, e.starts_at, e.ends_at, e.is_cancelled
+			   e.location_name, e.location_area, e.location_visibility, e.location_reveal_at,
+			   e.starts_at, e.ends_at, e.is_cancelled
 		FROM events e
 		WHERE e.id = $1
-	`, eventID).Scan(&id, &organizerID, &title, &description, &eventType, &lat, &lon, &locationName, &startsAt, &endsAt, &isCancelled)
+	`, eventID).Scan(&id, &organizerID, &title, &description, &eventType, &lat, &lon,
+		&locationName, &locationArea, &locationVisibility, &locationRevealAt,
+		&startsAt, &endsAt, &isCancelled)
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
@@ -224,24 +299,43 @@ func (h *Handler) GetEvent(c *gin.Context) {
 
 	// Check if current user has RSVP'd
 	var userRSVP *string
-	h.db.Pool().QueryRow(ctx, "SELECT status FROM event_rsvps WHERE event_id = $1 AND user_id = $2", eventID, userID).Scan(&userRSVP)
+	var hasRSVP bool
+	err = h.db.Pool().QueryRow(ctx, "SELECT status FROM event_rsvps WHERE event_id = $1 AND user_id = $2", eventID, userID).Scan(&userRSVP)
+	hasRSVP = err == nil && userRSVP != nil
 
 	event := gin.H{
-		"id":           id,
-		"organizer_id": organizerID,
-		"title":        title,
-		"event_type":   eventType,
-		"location":     gin.H{"latitude": lat, "longitude": lon},
-		"starts_at":    startsAt,
-		"is_cancelled": isCancelled,
-		"rsvp_count":   rsvpCount,
+		"id":                  id,
+		"organizer_id":        organizerID,
+		"title":               title,
+		"event_type":          eventType,
+		"starts_at":           startsAt,
+		"is_cancelled":        isCancelled,
+		"rsvp_count":          rsvpCount,
+		"location_visibility": locationVisibility,
+	}
+
+	// Conditionally include exact location
+	if shouldRevealLocation(locationVisibility, locationRevealAt, userID, organizerID, hasRSVP) {
+		event["location"] = gin.H{"latitude": lat, "longitude": lon}
+		if locationName != nil {
+			event["location_name"] = *locationName
+		}
+		event["location_revealed"] = true
+	} else {
+		event["location_revealed"] = false
+		if locationArea != nil {
+			event["location_area"] = *locationArea
+		}
+		if locationVisibility == "timed" && locationRevealAt != nil {
+			event["location_reveal_at"] = *locationRevealAt
+		}
+		if locationVisibility == "rsvp" {
+			event["location_hint"] = "RSVP to see exact location"
+		}
 	}
 
 	if description != nil {
 		event["description"] = *description
-	}
-	if locationName != nil {
-		event["location_name"] = *locationName
 	}
 	if endsAt != nil {
 		event["ends_at"] = *endsAt
@@ -272,17 +366,27 @@ func (h *Handler) UpdateEvent(c *gin.Context) {
 	}
 
 	var req struct {
-		Title        *string `json:"title"`
-		Description  *string `json:"description"`
-		LocationName *string `json:"location_name"`
-		StartsAt     *int64  `json:"starts_at"`
-		EndsAt       *int64  `json:"ends_at"`
-		IsCancelled  *bool   `json:"is_cancelled"`
+		Title              *string `json:"title"`
+		Description        *string `json:"description"`
+		LocationName       *string `json:"location_name"`
+		LocationArea       *string `json:"location_area"`
+		LocationVisibility *string `json:"location_visibility"`
+		LocationRevealAt   *int64  `json:"location_reveal_at"`
+		StartsAt           *int64  `json:"starts_at"`
+		EndsAt             *int64  `json:"ends_at"`
+		IsCancelled        *bool   `json:"is_cancelled"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Convert reveal timestamp if provided
+	var revealAt *time.Time
+	if req.LocationRevealAt != nil {
+		t := time.Unix(*req.LocationRevealAt, 0)
+		revealAt = &t
 	}
 
 	// Build update query
@@ -291,10 +395,14 @@ func (h *Handler) UpdateEvent(c *gin.Context) {
 			title = COALESCE($3, title),
 			description = COALESCE($4, description),
 			location_name = COALESCE($5, location_name),
-			is_cancelled = COALESCE($6, is_cancelled),
+			location_area = COALESCE($6, location_area),
+			location_visibility = COALESCE($7, location_visibility),
+			location_reveal_at = COALESCE($8, location_reveal_at),
+			is_cancelled = COALESCE($9, is_cancelled),
 			updated_at = NOW()
 		WHERE id = $1 AND organizer_id = $2
-	`, eventID, userID, req.Title, req.Description, req.LocationName, req.IsCancelled)
+	`, eventID, userID, req.Title, req.Description, req.LocationName, req.LocationArea,
+		req.LocationVisibility, revealAt, req.IsCancelled)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update event"})
@@ -343,9 +451,19 @@ func (h *Handler) RSVP(c *gin.Context) {
 		return
 	}
 
-	// Verify event exists
+	// Verify event exists and get visibility info
 	var exists bool
-	err := h.db.Pool().QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)", eventID).Scan(&exists)
+	var locationVisibility string
+	var locationRevealAt *time.Time
+	var lat, lon float64
+	var locationName *string
+
+	err := h.db.Pool().QueryRow(ctx, `
+		SELECT true, location_visibility, location_reveal_at,
+		       ST_Y(location::geometry) as lat, ST_X(location::geometry) as lon, location_name
+		FROM events WHERE id = $1
+	`, eventID).Scan(&exists, &locationVisibility, &locationRevealAt, &lat, &lon, &locationName)
+
 	if err != nil || !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
 		return
@@ -362,7 +480,18 @@ func (h *Handler) RSVP(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "RSVP recorded", "status": req.Status})
+	response := gin.H{"message": "RSVP recorded", "status": req.Status}
+
+	// If this is a going/interested RSVP for an rsvp-only event, reveal the location
+	if (req.Status == "going" || req.Status == "interested") && locationVisibility == "rsvp" {
+		response["location"] = gin.H{"latitude": lat, "longitude": lon}
+		if locationName != nil {
+			response["location_name"] = *locationName
+		}
+		response["location_revealed"] = true
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // CancelRSVP removes an RSVP
@@ -384,7 +513,7 @@ func (h *Handler) CancelRSVP(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "RSVP cancelled"})
 }
 
-// GetNearbyEvents returns events near a location
+// GetNearbyEvents returns events near a location (PUBLIC events only for map display)
 func (h *Handler) GetNearbyEvents(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -405,6 +534,7 @@ func (h *Handler) GetNearbyEvents(c *gin.Context) {
 		radiusMeters = 100000 // Max 100km
 	}
 
+	// Only return PUBLIC events for map/nearby display
 	rows, err := h.db.Pool().Query(ctx, `
 		SELECT e.id, e.title, e.event_type,
 			   ST_Y(e.location::geometry) as lat, ST_X(e.location::geometry) as lon,
@@ -414,6 +544,7 @@ func (h *Handler) GetNearbyEvents(c *gin.Context) {
 		FROM events e
 		WHERE e.starts_at > NOW()
 		  AND e.is_cancelled = false
+		  AND e.location_visibility = 'public'
 		  AND ST_DWithin(e.location, ST_MakePoint($2, $1)::geography, $3)
 		ORDER BY e.starts_at ASC
 		LIMIT 50
@@ -459,4 +590,86 @@ func (h *Handler) GetNearbyEvents(c *gin.Context) {
 		"center": gin.H{"latitude": lat, "longitude": lon},
 		"radius": radiusMeters,
 	})
+}
+
+// GetPublicEventsForMap returns all public events with locations for map display
+func (h *Handler) GetPublicEventsForMap(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// Parse bounding box if provided
+	minLat, _ := strconv.ParseFloat(c.Query("min_lat"), 64)
+	maxLat, _ := strconv.ParseFloat(c.Query("max_lat"), 64)
+	minLon, _ := strconv.ParseFloat(c.Query("min_lon"), 64)
+	maxLon, _ := strconv.ParseFloat(c.Query("max_lon"), 64)
+
+	var rows interface{ Close(); Next() bool; Scan(...interface{}) error }
+	var err error
+
+	if minLat != 0 || maxLat != 0 {
+		// Query with bounding box
+		rows, err = h.db.Pool().Query(ctx, `
+			SELECT e.id, e.title, e.event_type,
+				   ST_Y(e.location::geometry) as lat, ST_X(e.location::geometry) as lon,
+				   e.location_name, e.starts_at,
+				   (SELECT COUNT(*) FROM event_rsvps WHERE event_id = e.id AND status = 'going') as rsvp_count
+			FROM events e
+			WHERE e.starts_at > NOW()
+			  AND e.is_cancelled = false
+			  AND e.location_visibility = 'public'
+			  AND ST_Y(e.location::geometry) BETWEEN $1 AND $2
+			  AND ST_X(e.location::geometry) BETWEEN $3 AND $4
+			ORDER BY e.starts_at ASC
+			LIMIT 100
+		`, minLat, maxLat, minLon, maxLon)
+	} else {
+		// Query all upcoming public events
+		rows, err = h.db.Pool().Query(ctx, `
+			SELECT e.id, e.title, e.event_type,
+				   ST_Y(e.location::geometry) as lat, ST_X(e.location::geometry) as lon,
+				   e.location_name, e.starts_at,
+				   (SELECT COUNT(*) FROM event_rsvps WHERE event_id = e.id AND status = 'going') as rsvp_count
+			FROM events e
+			WHERE e.starts_at > NOW()
+			  AND e.is_cancelled = false
+			  AND e.location_visibility = 'public'
+			ORDER BY e.starts_at ASC
+			LIMIT 100
+		`)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch events"})
+		return
+	}
+	defer rows.Close()
+
+	var events []gin.H
+	for rows.Next() {
+		var id, title, eventType string
+		var lat, lon float64
+		var locationName *string
+		var startsAt time.Time
+		var rsvpCount int
+
+		if err := rows.Scan(&id, &title, &eventType, &lat, &lon, &locationName, &startsAt, &rsvpCount); err != nil {
+			continue
+		}
+
+		event := gin.H{
+			"id":         id,
+			"title":      title,
+			"event_type": eventType,
+			"location":   gin.H{"latitude": lat, "longitude": lon},
+			"starts_at":  startsAt,
+			"rsvp_count": rsvpCount,
+		}
+
+		if locationName != nil {
+			event["location_name"] = *locationName
+		}
+
+		events = append(events, event)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"events": events})
 }

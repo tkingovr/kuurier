@@ -35,8 +35,15 @@ func main() {
 	}
 	defer redis.Close()
 
+	// Initialize MinIO (object storage)
+	minio, err := storage.NewMinIO(cfg.MinIOEndpoint, cfg.MinIOAccessKey, cfg.MinIOSecretKey, cfg.MinIOBucket, cfg.MinIOUseSSL)
+	if err != nil {
+		log.Printf("Warning: Failed to connect to MinIO: %v (media uploads disabled)", err)
+		minio = nil
+	}
+
 	// Create router
-	router := api.NewRouter(cfg, db, redis)
+	router := api.NewRouter(cfg, db, redis, minio)
 
 	// Create server
 	srv := &http.Server{

@@ -11,12 +11,13 @@ import (
 	"github.com/kuurier/server/internal/feed"
 	"github.com/kuurier/server/internal/geo"
 	"github.com/kuurier/server/internal/invites"
+	"github.com/kuurier/server/internal/media"
 	"github.com/kuurier/server/internal/middleware"
 	"github.com/kuurier/server/internal/storage"
 )
 
 // NewRouter creates and configures the API router
-func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *gin.Engine {
+func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, minio *storage.MinIO) *gin.Engine {
 	// Set Gin mode based on environment
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -41,6 +42,12 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
 	alertsHandler := alerts.NewHandler(cfg, db, redis)
+
+	// Media handler (optional - requires MinIO)
+	var mediaHandler *media.Handler
+	if minio != nil {
+		mediaHandler = media.NewHandler(cfg, db, minio)
+	}
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -88,6 +95,15 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *
 				feedRoutes.POST("/posts/:id/flag", feedHandler.FlagPost)
 			}
 
+			// Media routes (only if MinIO is configured)
+			if mediaHandler != nil {
+				mediaRoutes := protected.Group("/media")
+				{
+					mediaRoutes.POST("/upload", mediaHandler.Upload)
+					mediaRoutes.POST("/attach/:post_id", mediaHandler.AttachToPost)
+				}
+			}
+
 			// Subscription routes
 			subRoutes := protected.Group("/subscriptions")
 			{
@@ -113,12 +129,13 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *
 			{
 				eventRoutes.GET("", eventsHandler.ListEvents)
 				eventRoutes.POST("", eventsHandler.CreateEvent)
+				eventRoutes.GET("/map", eventsHandler.GetPublicEventsForMap) // Public events for map display
+				eventRoutes.GET("/nearby", eventsHandler.GetNearbyEvents)
 				eventRoutes.GET("/:id", eventsHandler.GetEvent)
 				eventRoutes.PUT("/:id", eventsHandler.UpdateEvent)
 				eventRoutes.DELETE("/:id", eventsHandler.DeleteEvent)
 				eventRoutes.POST("/:id/rsvp", eventsHandler.RSVP)
 				eventRoutes.DELETE("/:id/rsvp", eventsHandler.CancelRSVP)
-				eventRoutes.GET("/nearby", eventsHandler.GetNearbyEvents)
 			}
 
 			// Alert routes (SOS system)

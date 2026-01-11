@@ -34,6 +34,18 @@ struct Post: Codable, Identifiable {
     let urgency: Int
     let createdAt: Date
     let verificationScore: Int
+    let media: [PostMedia]?
+}
+
+struct PostMedia: Codable, Identifiable {
+    let id: String
+    let url: String
+    let type: MediaType
+
+    enum MediaType: String, Codable {
+        case image
+        case video
+    }
 }
 
 enum SourceType: String, Codable {
@@ -84,8 +96,13 @@ struct Event: Codable, Identifiable {
     let title: String
     let description: String?
     let eventType: EventType
-    let location: Location
+    let location: Location?              // May be nil if location is hidden
     let locationName: String?
+    let locationArea: String?            // General area when exact location hidden
+    let locationVisibility: LocationVisibility
+    let locationRevealed: Bool           // Whether location is currently visible to user
+    let locationRevealAt: Date?          // For timed visibility: when location will be revealed
+    let locationHint: String?            // Hint like "RSVP to see exact location"
     let startsAt: Date
     let endsAt: Date?
     let isCancelled: Bool?
@@ -94,19 +111,71 @@ struct Event: Codable, Identifiable {
     let distanceMeters: Int?
 }
 
-enum EventType: String, Codable {
+enum EventType: String, Codable, CaseIterable {
     case protest
     case strike
     case fundraiser
     case mutualAid = "mutual_aid"
     case meeting
     case other
+
+    var displayName: String {
+        switch self {
+        case .protest: return "Protest"
+        case .strike: return "Strike"
+        case .fundraiser: return "Fundraiser"
+        case .mutualAid: return "Mutual Aid"
+        case .meeting: return "Meeting"
+        case .other: return "Other"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .protest: return "megaphone.fill"
+        case .strike: return "hand.raised.fill"
+        case .fundraiser: return "heart.fill"
+        case .mutualAid: return "hands.sparkles.fill"
+        case .meeting: return "person.3.fill"
+        case .other: return "calendar"
+        }
+    }
+}
+
+enum LocationVisibility: String, Codable, CaseIterable {
+    case `public`   // Always visible, shows on map
+    case rsvp       // Only visible after RSVP
+    case timed      // Hidden until reveal time
+
+    var displayName: String {
+        switch self {
+        case .public: return "Public"
+        case .rsvp: return "RSVP Only"
+        case .timed: return "Reveal Later"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .public: return "Location visible to everyone and shown on map"
+        case .rsvp: return "Location revealed only after attendee RSVPs"
+        case .timed: return "Location hidden until a set time before event"
+        }
+    }
 }
 
 enum RSVPStatus: String, Codable {
     case going
     case interested
     case notGoing = "not_going"
+
+    var displayName: String {
+        switch self {
+        case .going: return "Going"
+        case .interested: return "Interested"
+        case .notGoing: return "Can't Go"
+        }
+    }
 }
 
 // MARK: - Alerts (SOS)

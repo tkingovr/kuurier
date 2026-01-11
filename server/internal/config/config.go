@@ -18,6 +18,13 @@ type Config struct {
 	// Redis
 	RedisURL string
 
+	// MinIO (object storage)
+	MinIOEndpoint  string
+	MinIOAccessKey string
+	MinIOSecretKey string
+	MinIOBucket    string
+	MinIOUseSSL    bool
+
 	// Security
 	JWTSecret     []byte
 	TokenDuration int // hours
@@ -34,14 +41,19 @@ type Config struct {
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
-		Port:          getEnv("PORT", "8080"),
-		Environment:   getEnv("ENVIRONMENT", "development"),
-		DatabaseURL:   getEnv("DATABASE_URL", "postgres://localhost:5432/kuurier?sslmode=disable"),
-		RedisURL:      getEnv("REDIS_URL", "redis://localhost:6379"),
-		TokenDuration: getEnvInt("TOKEN_DURATION_HOURS", 720), // 30 days default
-		APNsKeyPath:   getEnv("APNS_KEY_PATH", ""),
-		APNsKeyID:     getEnv("APNS_KEY_ID", ""),
-		APNsTeamID:    getEnv("APNS_TEAM_ID", ""),
+		Port:           getEnv("PORT", "8080"),
+		Environment:    getEnv("ENVIRONMENT", "development"),
+		DatabaseURL:    getEnv("DATABASE_URL", "postgres://localhost:5432/kuurier?sslmode=disable"),
+		RedisURL:       getEnv("REDIS_URL", "redis://localhost:6379"),
+		MinIOEndpoint:  getEnv("MINIO_ENDPOINT", "localhost:9000"),
+		MinIOAccessKey: getEnv("MINIO_ACCESS_KEY", "kuurier_admin"),
+		MinIOSecretKey: getEnv("MINIO_SECRET_KEY", "kuurier_minio_password"),
+		MinIOBucket:    getEnv("MINIO_BUCKET", "kuurier-media"),
+		MinIOUseSSL:    getEnv("MINIO_USE_SSL", "false") == "true",
+		TokenDuration:  getEnvInt("TOKEN_DURATION_HOURS", 720), // 30 days default
+		APNsKeyPath:    getEnv("APNS_KEY_PATH", ""),
+		APNsKeyID:      getEnv("APNS_KEY_ID", ""),
+		APNsTeamID:     getEnv("APNS_TEAM_ID", ""),
 	}
 
 	// JWT secret is required in production
