@@ -17,6 +17,7 @@
 		52E7DB012F1151ED00CCA28A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 52E7DAF82F1151EC00CCA28A /* Assets.xcassets */; };
 		52E7DB052F1151EC00CCA28A /* InviteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB022F1151EC00CCA28A /* InviteService.swift */; };
 		52E7DB062F1151EC00CCA28A /* InvitesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB032F1151EC00CCA28A /* InvitesView.swift */; };
+		52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB082F1152EC00CCA28A /* FeedService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,7 @@
 		52E7DAF82F1151EC00CCA28A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		52E7DB022F1151EC00CCA28A /* InviteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteService.swift; sourceTree = "<group>"; };
 		52E7DB032F1151EC00CCA28A /* InvitesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitesView.swift; sourceTree = "<group>"; };
+		52E7DB082F1152EC00CCA28A /* FeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -137,6 +139,7 @@
 		52E7DAF32F1151EC00CCA28A /* Feed */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DB082F1152EC00CCA28A /* FeedService.swift */,
 			);
 			path = Feed;
 			sourceTree = "<group>";
@@ -278,6 +281,7 @@
 				52E7DB002F1151EC00CCA28A /* KeyManager.swift in Sources */,
 				52E7DB052F1151EC00CCA28A /* InviteService.swift in Sources */,
 				52E7DB062F1151EC00CCA28A /* InvitesView.swift in Sources */,
+				52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
