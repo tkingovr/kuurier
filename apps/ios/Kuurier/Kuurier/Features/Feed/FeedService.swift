@@ -9,6 +9,7 @@ final class FeedService: ObservableObject {
     @Published var posts: [Post] = []
     @Published var isLoading = false
     @Published var isLoadingMore = false
+    @Published var isCreatingPost = false
     @Published var error: String?
     @Published var hasMorePosts = true
 
@@ -76,7 +77,13 @@ final class FeedService: ObservableObject {
     /// Creates a new post
     @MainActor
     func createPost(content: String, sourceType: SourceType, location: Location? = nil, locationName: String? = nil, urgency: Int = 1) async -> Bool {
-        isLoading = true
+        // Prevent double-submit
+        guard !isCreatingPost else {
+            print("FeedService: Already creating a post, ignoring duplicate request")
+            return false
+        }
+
+        isCreatingPost = true
         error = nil
 
         do {
@@ -95,14 +102,16 @@ final class FeedService: ObservableObject {
 
             print("FeedService: Post created successfully with id=\(response.id)")
 
+            // Reset creating state before refreshing feed (so fetchFeed isn't blocked)
+            isCreatingPost = false
+
             // Refresh feed to show new post
             await fetchFeed(refresh: true)
-            isLoading = false
             return true
         } catch {
             print("FeedService: Error creating post: \(error)")
             self.error = error.localizedDescription
-            isLoading = false
+            isCreatingPost = false
             return false
         }
     }

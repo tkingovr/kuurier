@@ -77,6 +77,22 @@ Kuurier is a secure activist platform with an iOS app (SwiftUI) and Go backend. 
 - User profile now fetches on app launch (fixed trust score not showing)
 - `AuthService.swift` fetches current user in `init()` if already authenticated
 
+### 5. Bug Fixes
+
+**Post Creation Double-Submit & Feed Refresh (Jan 11, 2026):**
+
+*Problem:* After creating a post, the feed showed empty. Navigating away and back showed the post (sometimes duplicated).
+
+*Root Causes:*
+1. Feed refresh was being skipped - `createPost()` set `isLoading = true`, then called `fetchFeed()` which has `guard !isLoading else { return }`, causing the refresh to silently fail
+2. No service-level double-submit protection - only view-level state that could race
+
+*Fixes (`FeedService.swift` + `ContentView.swift`):*
+- Added separate `isCreatingPost` published property for post creation state
+- Added guard in `createPost()`: `guard !isCreatingPost else { return false }` to prevent double-submits
+- Reset `isCreatingPost = false` BEFORE calling `fetchFeed()` so refresh isn't blocked
+- `ComposePostView` now uses `feedService.isCreatingPost` instead of local state
+
 ---
 
 ## Project Structure
@@ -186,6 +202,7 @@ UPDATE users SET trust_score = 100 WHERE id = 'your-user-id';
 **Branch:** `feature/invite-system`
 
 Recent commits:
+- Fix post double-submit and feed refresh after creation
 - Fix post creation endpoint and feed nil array issue
 - Add error display and debug logging to post creation
 - Restore original compose post Form layout
@@ -224,7 +241,7 @@ Recent commits:
 
 ## Next Steps
 
-1. Test posting functionality end-to-end
+1. ~~Test posting functionality end-to-end~~ (Done - fixed double-submit bug)
 2. Merge `feature/invite-system` PR into main
 3. Implement Map view with MapKit
 4. Or continue with Events/Alerts features

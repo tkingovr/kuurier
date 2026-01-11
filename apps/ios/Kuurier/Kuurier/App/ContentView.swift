@@ -302,7 +302,6 @@ struct ComposePostView: View {
     @State private var urgency: Int = 1
     @State private var includeLocation = false
     @State private var locationName: String = ""
-    @State private var isSubmitting = false
 
     private let maxCharacters = 500
 
@@ -399,20 +398,21 @@ struct ComposePostView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(feedService.isCreatingPost)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(action: submitPost) {
-                        if isSubmitting {
+                        if feedService.isCreatingPost {
                             ProgressView()
                         } else {
                             Text("Post")
                                 .fontWeight(.semibold)
                         }
                     }
-                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
+                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || feedService.isCreatingPost)
                 }
             }
-            .interactiveDismissDisabled(isSubmitting)
+            .interactiveDismissDisabled(feedService.isCreatingPost)
         }
     }
 
@@ -459,7 +459,6 @@ struct ComposePostView: View {
 
     private func submitPost() {
         print("ComposePostView: Submit button tapped")
-        isSubmitting = true
         Task {
             print("ComposePostView: Calling createPost...")
             let success = await feedService.createPost(
@@ -472,7 +471,6 @@ struct ComposePostView: View {
             if success {
                 dismiss()
             }
-            isSubmitting = false
         }
     }
 }
