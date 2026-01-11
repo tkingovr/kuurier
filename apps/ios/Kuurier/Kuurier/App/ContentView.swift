@@ -188,6 +188,11 @@ struct PostRowView: View {
             Text(post.content)
                 .font(.body)
 
+            // Media (images/videos)
+            if let media = post.media, !media.isEmpty {
+                PostMediaView(media: media)
+            }
+
             // Location if available
             if let locationName = post.locationName {
                 HStack(spacing: 4) {
@@ -291,6 +296,124 @@ struct PostRowView: View {
         case 2: return .yellow
         case 3: return .red
         default: return .gray
+        }
+    }
+}
+
+// MARK: - Post Media View
+
+struct PostMediaView: View {
+    let media: [PostMedia]
+    @State private var selectedMedia: PostMedia?
+
+    var body: some View {
+        if media.count == 1 {
+            // Single media item - show larger
+            singleMediaView(media[0])
+        } else {
+            // Multiple items - horizontal scroll
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(media) { item in
+                        mediaItemView(item)
+                            .frame(width: 150, height: 150)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func singleMediaView(_ item: PostMedia) -> some View {
+        switch item.type {
+        case .image:
+            AsyncImage(url: URL(string: item.url)) { phase in
+                switch phase {
+                case .empty:
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 200)
+                        .overlay {
+                            ProgressView()
+                        }
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(maxHeight: 300)
+                        .clipped()
+                        .cornerRadius(12)
+                case .failure:
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 200)
+                        .overlay {
+                            Image(systemName: "photo")
+                                .foregroundColor(.secondary)
+                        }
+                @unknown default:
+                    EmptyView()
+                }
+            }
+        case .video:
+            ZStack {
+                AsyncImage(url: URL(string: item.url)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 200)
+                            .clipped()
+                    default:
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(height: 200)
+                    }
+                }
+                .cornerRadius(12)
+
+                // Play button overlay
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .frame(width: 60, height: 60)
+                    .overlay {
+                        Image(systemName: "play.fill")
+                            .font(.title)
+                            .foregroundColor(.white)
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func mediaItemView(_ item: PostMedia) -> some View {
+        switch item.type {
+        case .image:
+            AsyncImage(url: URL(string: item.url)) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .clipped()
+                default:
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.2))
+                        .overlay {
+                            ProgressView()
+                        }
+                }
+            }
+            .cornerRadius(8)
+        case .video:
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.3))
+                Image(systemName: "play.circle.fill")
+                    .font(.largeTitle)
+                    .foregroundColor(.white)
+            }
         }
     }
 }

@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -105,6 +106,12 @@ func (h *Handler) GetFeed(c *gin.Context) {
 		}
 		if locationName != nil {
 			post["location_name"] = *locationName
+		}
+
+		// Fetch media for this post
+		media := h.getPostMedia(ctx, id)
+		if len(media) > 0 {
+			post["media"] = media
 		}
 
 		posts = append(posts, post)
@@ -225,6 +232,12 @@ func (h *Handler) GetPost(c *gin.Context) {
 	}
 	if locationName != nil {
 		post["location_name"] = *locationName
+	}
+
+	// Fetch media for this post
+	media := h.getPostMedia(ctx, id)
+	if len(media) > 0 {
+		post["media"] = media
 	}
 
 	c.JSON(http.StatusOK, post)
@@ -505,4 +518,38 @@ func (h *Handler) DeleteSubscription(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "subscription deleted"})
+}
+
+// getPostMedia fetches media attachments for a post
+func (h *Handler) getPostMedia(ctx context.Context, postID string) []gin.H {
+	rows, err := h.db.Pool().Query(ctx, `
+		SELECT id, media_url, media_type, created_at
+		FROM post_media
+		WHERE post_id = $1
+		ORDER BY created_at ASC
+	`, postID)
+
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var media []gin.H
+	for rows.Next() {
+		var id, mediaURL, mediaType string
+		var createdAt time.Time
+
+		if err := rows.Scan(&id, &mediaURL, &mediaType, &createdAt); err != nil {
+			continue
+		}
+
+		media = append(media, gin.H{
+			"id":         id,
+			"url":        mediaURL,
+			"type":       mediaType,
+			"created_at": createdAt,
+		})
+	}
+
+	return media
 }

@@ -34,6 +34,18 @@ struct Post: Codable, Identifiable {
     let urgency: Int
     let createdAt: Date
     let verificationScore: Int
+    let media: [PostMedia]?
+}
+
+struct PostMedia: Codable, Identifiable {
+    let id: String
+    let url: String
+    let type: MediaType
+
+    enum MediaType: String, Codable {
+        case image
+        case video
+    }
 }
 
 enum SourceType: String, Codable {

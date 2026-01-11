@@ -137,7 +137,8 @@ final class FeedService: ObservableObject {
                     locationName: updatedPost.locationName,
                     urgency: updatedPost.urgency,
                     createdAt: updatedPost.createdAt,
-                    verificationScore: updatedPost.verificationScore + 1
+                    verificationScore: updatedPost.verificationScore + 1,
+                    media: updatedPost.media
                 )
             }
             return true
@@ -154,7 +155,7 @@ final class FeedService: ObservableObject {
 
             // Update local post
             if let index = posts.firstIndex(where: { $0.id == id }) {
-                var updatedPost = posts[index]
+                let updatedPost = posts[index]
                 posts[index] = Post(
                     id: updatedPost.id,
                     authorId: updatedPost.authorId,
@@ -164,7 +165,8 @@ final class FeedService: ObservableObject {
                     locationName: updatedPost.locationName,
                     urgency: updatedPost.urgency,
                     createdAt: updatedPost.createdAt,
-                    verificationScore: updatedPost.verificationScore - 1
+                    verificationScore: updatedPost.verificationScore - 1,
+                    media: updatedPost.media
                 )
             }
             return true
