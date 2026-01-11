@@ -1,4 +1,7 @@
 import SwiftUI
+import MapKit
+import CoreLocation
+import Combine
 
 struct ContentView: View {
 
@@ -476,15 +479,423 @@ struct ComposePostView: View {
 }
 
 struct MapView: View {
+    @StateObject private var mapService = MapService.shared
+    @StateObject private var locationManager = LocationManager()
+    @State private var cameraPosition: MapCameraPosition = .automatic
+    @State private var selectedMarker: MapMarker?
+    @State private var showMarkerDetail = false
+    @State private var currentZoom: Int = 5
+
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black.ignoresSafeArea()
-                Text("Global Map")
-                    .foregroundColor(.white)
+                Map(position: $cameraPosition) {
+                    // User location
+                    UserAnnotation()
+
+                    // Markers from API
+                    ForEach(mapService.markers) { marker in
+                        if marker.type == .cluster {
+                            // Cluster annotation
+                            Annotation("", coordinate: marker.coordinate) {
+                                ClusterMarkerView(
+                                    count: marker.count ?? 0,
+                                    maxUrgency: marker.maxUrgency ?? 1
+                                )
+                                .onTapGesture {
+                                    // Zoom in on cluster
+                                    zoomToCluster(marker)
+                                }
+                            }
+                        } else {
+                            // Individual post marker
+                            Annotation("", coordinate: marker.coordinate) {
+                                PostMarkerView(
+                                    urgency: marker.maxUrgency ?? 1,
+                                    sourceType: marker.sourceType ?? "firsthand"
+                                )
+                                .onTapGesture {
+                                    selectedMarker = marker
+                                    showMarkerDetail = true
+                                }
+                            }
+                        }
+                    }
+                }
+                .mapStyle(.standard(elevation: .realistic))
+                .mapControls {
+                    MapUserLocationButton()
+                    MapCompass()
+                    MapScaleView()
+                }
+                .onMapCameraChange(frequency: .onEnd) { context in
+                    let region = context.region
+                    let mapRegion = MapRegion(
+                        minLat: region.center.latitude - region.span.latitudeDelta / 2,
+                        maxLat: region.center.latitude + region.span.latitudeDelta / 2,
+                        minLon: region.center.longitude - region.span.longitudeDelta / 2,
+                        maxLon: region.center.longitude + region.span.longitudeDelta / 2
+                    )
+
+                    // Calculate zoom level from span
+                    let zoom = calculateZoom(from: region.span.latitudeDelta)
+                    currentZoom = zoom
+
+                    Task {
+                        await mapService.fetchMarkers(region: mapRegion, zoom: zoom)
+                    }
+                }
+
+                // Loading indicator
+                if mapService.isLoading {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .padding(12)
+                                .background(.ultraThinMaterial)
+                                .cornerRadius(8)
+                                .padding()
+                        }
+                    }
+                }
+
+                // Recenter button
+                VStack {
+                    Spacer()
+                    HStack {
+                        Button(action: centerOnUser) {
+                            Image(systemName: "location.fill")
+                                .font(.title2)
+                                .padding(12)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+                        .padding()
+                        Spacer()
+                    }
+                }
             }
             .navigationTitle("Map")
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showMarkerDetail) {
+                if let marker = selectedMarker {
+                    MarkerDetailSheet(marker: marker)
+                        .presentationDetents([.medium])
+                }
+            }
+            .onAppear {
+                locationManager.requestPermission()
+            }
         }
+    }
+
+    private func calculateZoom(from latDelta: Double) -> Int {
+        // Rough conversion from latitude delta to zoom level
+        switch latDelta {
+        case 0..<0.01: return 15
+        case 0.01..<0.05: return 13
+        case 0.05..<0.1: return 12
+        case 0.1..<0.5: return 10
+        case 0.5..<1: return 8
+        case 1..<5: return 6
+        case 5..<20: return 4
+        default: return 2
+        }
+    }
+
+    private func zoomToCluster(_ marker: MapMarker) {
+        withAnimation {
+            cameraPosition = .region(MKCoordinateRegion(
+                center: marker.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.5, longitudeDelta: 0.5)
+            ))
+        }
+    }
+
+    private func centerOnUser() {
+        if let location = locationManager.location {
+            withAnimation {
+                cameraPosition = .region(MKCoordinateRegion(
+                    center: location.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+                ))
+            }
+        }
+    }
+}
+
+// MARK: - Cluster Marker View
+
+struct ClusterMarkerView: View {
+    let count: Int
+    let maxUrgency: Int
+
+    private var backgroundColor: Color {
+        switch maxUrgency {
+        case 3: return .red
+        case 2: return .orange
+        default: return .blue
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(backgroundColor.opacity(0.8))
+                .frame(width: markerSize, height: markerSize)
+
+            Circle()
+                .strokeBorder(.white, lineWidth: 2)
+                .frame(width: markerSize, height: markerSize)
+
+            Text(formattedCount)
+                .font(.system(size: fontSize, weight: .bold))
+                .foregroundColor(.white)
+        }
+    }
+
+    private var markerSize: CGFloat {
+        switch count {
+        case 0..<10: return 36
+        case 10..<50: return 44
+        case 50..<100: return 52
+        default: return 60
+        }
+    }
+
+    private var fontSize: CGFloat {
+        switch count {
+        case 0..<10: return 12
+        case 10..<100: return 11
+        default: return 10
+        }
+    }
+
+    private var formattedCount: String {
+        if count >= 1000 {
+            return "\(count / 1000)k+"
+        } else if count >= 100 {
+            return "\(count)+"
+        }
+        return "\(count)"
+    }
+}
+
+// MARK: - Post Marker View
+
+struct PostMarkerView: View {
+    let urgency: Int
+    let sourceType: String
+
+    private var markerColor: Color {
+        switch urgency {
+        case 3: return .red
+        case 2: return .orange
+        default: return .green
+        }
+    }
+
+    private var sourceIcon: String {
+        switch sourceType {
+        case "firsthand": return "eye.fill"
+        case "aggregated": return "arrow.triangle.merge"
+        case "mainstream": return "newspaper.fill"
+        default: return "circle.fill"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Circle()
+                    .fill(markerColor)
+                    .frame(width: 32, height: 32)
+
+                Image(systemName: sourceIcon)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+            }
+
+            // Pin point
+            Triangle()
+                .fill(markerColor)
+                .frame(width: 12, height: 8)
+                .offset(y: -2)
+        }
+    }
+}
+
+// MARK: - Triangle Shape
+
+struct Triangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+// MARK: - Marker Detail Sheet
+
+struct MarkerDetailSheet: View {
+    let marker: MapMarker
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                // Source badge
+                HStack {
+                    sourceTypeBadge
+                    Spacer()
+                    urgencyIndicator
+                }
+
+                // Content
+                if let content = marker.content {
+                    Text(content)
+                        .font(.body)
+                }
+
+                // Time
+                if let createdAt = marker.createdAt {
+                    HStack {
+                        Image(systemName: "clock")
+                            .font(.caption)
+                        Text(createdAt, style: .relative)
+                            .font(.caption)
+                    }
+                    .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                // Actions
+                HStack(spacing: 16) {
+                    Button(action: {}) {
+                        Label("Verify", systemImage: "checkmark.circle")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(action: {}) {
+                        Label("Flag", systemImage: "flag")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+
+                    Spacer()
+
+                    ShareLink(item: marker.content ?? "") {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding()
+            .navigationTitle("Post")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var sourceTypeBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: sourceIcon)
+            Text(sourceLabel)
+        }
+        .font(.caption)
+        .fontWeight(.medium)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(sourceColor.opacity(0.15))
+        .foregroundColor(sourceColor)
+        .cornerRadius(4)
+    }
+
+    private var sourceIcon: String {
+        switch marker.sourceType {
+        case "firsthand": return "eye.fill"
+        case "aggregated": return "arrow.triangle.merge"
+        case "mainstream": return "newspaper.fill"
+        default: return "circle.fill"
+        }
+    }
+
+    private var sourceLabel: String {
+        switch marker.sourceType {
+        case "firsthand": return "Firsthand"
+        case "aggregated": return "Aggregated"
+        case "mainstream": return "News"
+        default: return "Unknown"
+        }
+    }
+
+    private var sourceColor: Color {
+        switch marker.sourceType {
+        case "firsthand": return .green
+        case "aggregated": return .blue
+        case "mainstream": return .purple
+        default: return .gray
+        }
+    }
+
+    private var urgencyIndicator: some View {
+        HStack(spacing: 2) {
+            ForEach(1...3, id: \.self) { level in
+                Circle()
+                    .fill(level <= (marker.maxUrgency ?? 1) ? urgencyColor : Color.gray.opacity(0.3))
+                    .frame(width: 8, height: 8)
+            }
+        }
+    }
+
+    private var urgencyColor: Color {
+        switch marker.maxUrgency {
+        case 1: return .green
+        case 2: return .yellow
+        case 3: return .red
+        default: return .gray
+        }
+    }
+}
+
+// MARK: - Location Manager
+
+class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+
+    @Published var location: CLLocation?
+    @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+    }
+
+    func requestPermission() {
+        manager.requestWhenInUseAuthorization()
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        authorizationStatus = manager.authorizationStatus
+        if manager.authorizationStatus == .authorizedWhenInUse ||
+           manager.authorizationStatus == .authorizedAlways {
+            manager.startUpdatingLocation()
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        location = locations.last
     }
 }
 
