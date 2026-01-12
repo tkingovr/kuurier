@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 import CoreLocation
 import Combine
+import PhotosUI
 
 struct ContentView: View {
 
@@ -9,7 +10,7 @@ struct ContentView: View {
     @State private var selectedTab: Tab = .feed
 
     enum Tab {
-        case feed, map, events, alerts, settings
+        case feed, messages, map, events, alerts, settings
     }
 
     var body: some View {
@@ -30,6 +31,12 @@ struct ContentView: View {
                     Label("Feed", systemImage: "newspaper")
                 }
                 .tag(Tab.feed)
+
+            MessagesTabView()
+                .tabItem {
+                    Label("Messages", systemImage: "bubble.left.and.bubble.right")
+                }
+                .tag(Tab.messages)
 
             MapView()
                 .tabItem {
@@ -418,16 +425,139 @@ struct PostMediaView: View {
     }
 }
 
+// MARK: - Media Thumbnail View (for compose)
+
+struct MediaThumbnailView: View {
+    let item: SelectedMediaItem
+    let onRemove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            // Thumbnail
+            if let thumbnail = item.thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 80, height: 80)
+                    .clipped()
+                    .cornerRadius(8)
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 80, height: 80)
+                    .overlay {
+                        Image(systemName: item.type == .video ? "video" : "photo")
+                            .foregroundColor(.secondary)
+                    }
+            }
+
+            // Video indicator
+            if item.type == .video {
+                Image(systemName: "video.fill")
+                    .font(.caption2)
+                    .foregroundColor(.white)
+                    .padding(4)
+                    .background(Color.black.opacity(0.6))
+                    .cornerRadius(4)
+                    .padding(4)
+            }
+
+            // Remove button
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
+            }
+            .offset(x: 6, y: -6)
+        }
+    }
+}
+
+// MARK: - Upload Progress Overlay
+
+struct UploadProgressOverlay: View {
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 200)
+                    .tint(.orange)
+
+                Text("Uploading media... \(Int(progress * 100))%")
+                    .font(.subheadline)
+                    .foregroundColor(.white)
+            }
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.ultraThinMaterial)
+            )
+        }
+    }
+}
+
+// MARK: - Camera View
+
+struct CameraView: UIViewControllerRepresentable {
+    let onCapture: (UIImage) -> Void
+    @Environment(\.dismiss) var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        picker.allowsEditing = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraView
+
+        init(_ parent: CameraView) {
+            self.parent = parent
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onCapture(image)
+            }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+    }
+}
+
 // MARK: - Compose Post View
 
 struct ComposePostView: View {
     @Environment(\.dismiss) var dismiss
     @StateObject private var feedService = FeedService.shared
+    @StateObject private var mediaService = MediaService.shared
     @State private var content = ""
     @State private var sourceType: SourceType = .firsthand
     @State private var urgency: Int = 1
     @State private var includeLocation = false
     @State private var locationName: String = ""
+
+    // Media selection state
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showingCamera = false
 
     private let maxCharacters = 500
 
@@ -462,6 +592,54 @@ struct ComposePostView: View {
                             .font(.caption)
                             .foregroundColor(content.count > maxCharacters - 50 ? .orange : .secondary)
                     }
+                }
+
+                // Media Section
+                Section("Media") {
+                    // Selected media thumbnails
+                    if !mediaService.selectedItems.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(mediaService.selectedItems) { item in
+                                    MediaThumbnailView(item: item) {
+                                        mediaService.removeItem(id: item.id)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    // Add media buttons
+                    if mediaService.canAddMore {
+                        HStack(spacing: 16) {
+                            PhotosPicker(
+                                selection: $selectedPhotoItems,
+                                maxSelectionCount: mediaService.remainingSlots,
+                                matching: .any(of: [.images, .videos])
+                            ) {
+                                Label("Photo Library", systemImage: "photo.on.rectangle")
+                            }
+                            .onChange(of: selectedPhotoItems) { _, newItems in
+                                Task {
+                                    await mediaService.processPickerSelection(newItems)
+                                    selectedPhotoItems = []
+                                }
+                            }
+
+                            Button {
+                                showingCamera = true
+                            } label: {
+                                Label("Camera", systemImage: "camera")
+                            }
+                        }
+                        .foregroundColor(.orange)
+                    }
+
+                    // Status text
+                    Text("\(mediaService.selectedItems.count)/5 media items")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
                 // Source Section
@@ -535,10 +713,35 @@ struct ComposePostView: View {
                                 .fontWeight(.semibold)
                         }
                     }
-                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || feedService.isCreatingPost)
+                    .disabled(
+                        content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        feedService.isCreatingPost ||
+                        mediaService.isUploading
+                    )
                 }
             }
-            .interactiveDismissDisabled(feedService.isCreatingPost)
+            .interactiveDismissDisabled(feedService.isCreatingPost || mediaService.isUploading)
+            .overlay {
+                if mediaService.isUploading {
+                    UploadProgressOverlay(progress: mediaService.uploadProgress)
+                }
+            }
+            .sheet(isPresented: $showingCamera) {
+                CameraView { image in
+                    if let data = image.jpegData(compressionQuality: 0.8) {
+                        let item = SelectedMediaItem(
+                            data: data,
+                            thumbnail: image,
+                            type: .image,
+                            originalFilename: "camera_photo.jpg"
+                        )
+                        mediaService.addItem(item)
+                    }
+                }
+            }
+            .onDisappear {
+                mediaService.clearSelection()
+            }
         }
     }
 
@@ -587,16 +790,31 @@ struct ComposePostView: View {
         print("ComposePostView: Submit button tapped")
         Task {
             print("ComposePostView: Calling createPost...")
-            let success = await feedService.createPost(
+
+            // Step 1: Create the post
+            guard let postId = await feedService.createPost(
                 content: content.trimmingCharacters(in: .whitespacesAndNewlines),
                 sourceType: sourceType,
                 locationName: includeLocation && !locationName.isEmpty ? locationName : nil,
                 urgency: urgency
-            )
-            print("ComposePostView: createPost returned success=\(success)")
-            if success {
-                dismiss()
+            ) else {
+                print("ComposePostView: createPost failed")
+                return
             }
+
+            print("ComposePostView: Post created with id=\(postId)")
+
+            // Step 2: Upload and attach media if any
+            if !mediaService.selectedItems.isEmpty {
+                print("ComposePostView: Uploading \(mediaService.selectedItems.count) media items...")
+                let uploadedUrls = await mediaService.uploadAndAttachMedia(to: postId)
+                print("ComposePostView: Uploaded \(uploadedUrls.count) media items")
+            }
+
+            // Step 3: Finish and refresh
+            await feedService.finishPostCreation(success: true)
+            mediaService.clearSelection()
+            dismiss()
         }
     }
 }

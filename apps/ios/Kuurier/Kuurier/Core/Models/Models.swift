@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import UIKit
 
 // MARK: - User & Auth
 
@@ -45,6 +46,72 @@ struct PostMedia: Codable, Identifiable {
     enum MediaType: String, Codable {
         case image
         case video
+    }
+}
+
+// MARK: - Media Selection & Upload
+
+/// Represents a locally selected media item before upload
+struct SelectedMediaItem: Identifiable {
+    let id: UUID
+    let data: Data
+    let thumbnail: UIImage?
+    let type: SelectedMediaType
+    let originalFilename: String?
+
+    enum SelectedMediaType {
+        case image
+        case video
+
+        var mimeType: String {
+            switch self {
+            case .image: return "image/jpeg"
+            case .video: return "video/mp4"
+            }
+        }
+
+        var apiValue: String {
+            switch self {
+            case .image: return "image"
+            case .video: return "video"
+            }
+        }
+    }
+
+    init(data: Data, thumbnail: UIImage?, type: SelectedMediaType, originalFilename: String? = nil) {
+        self.id = UUID()
+        self.data = data
+        self.thumbnail = thumbnail
+        self.type = type
+        self.originalFilename = originalFilename
+    }
+}
+
+struct MediaUploadResponse: Decodable {
+    let url: String
+    let mediaType: String
+    let size: Int64
+    let filename: String
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case mediaType = "media_type"
+        case size
+        case filename
+    }
+}
+
+struct MediaAttachResponse: Decodable {
+    let id: String
+    let postId: String
+    let mediaUrl: String
+    let mediaType: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case postId = "post_id"
+        case mediaUrl = "media_url"
+        case mediaType = "media_type"
     }
 }
 

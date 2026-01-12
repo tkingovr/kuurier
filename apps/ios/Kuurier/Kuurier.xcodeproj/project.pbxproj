@@ -20,6 +20,15 @@
 		52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB082F1152EC00CCA28A /* FeedService.swift */; };
 		52E7DB092F115A0000CCA28A /* MapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0A2F115A0000CCA28A /* MapService.swift */; };
 		52E7DB0C2F115B0000CCA28A /* EventsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0B2F115B0000CCA28A /* EventsService.swift */; };
+		52E7DB0D2F116A0000CCA28A /* MediaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0E2F116A0000CCA28A /* MediaService.swift */; };
+		52E7DB102F117A0000CCA28A /* SignalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB112F117A0000CCA28A /* SignalStore.swift */; };
+		52E7DB122F117A0000CCA28A /* SignalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB132F117A0000CCA28A /* SignalService.swift */; };
+		52E7DB202F118A0000CCA28A /* MessagingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB212F118A0000CCA28A /* MessagingModels.swift */; };
+		52E7DB222F118A0000CCA28A /* MessagingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB232F118A0000CCA28A /* MessagingService.swift */; };
+		52E7DB322F118B0000CCA28A /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB312F118B0000CCA28A /* ConversationView.swift */; };
+		52E7DB342F118B0000CCA28A /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB332F118B0000CCA28A /* MessageBubbleView.swift */; };
+		52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */; };
+		52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB372F118B0000CCA28A /* MessagesTabView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +46,15 @@
 		52E7DB082F1152EC00CCA28A /* FeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedService.swift; sourceTree = "<group>"; };
 		52E7DB0A2F115A0000CCA28A /* MapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapService.swift; sourceTree = "<group>"; };
 		52E7DB0B2F115B0000CCA28A /* EventsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventsService.swift; sourceTree = "<group>"; };
+		52E7DB0E2F116A0000CCA28A /* MediaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaService.swift; sourceTree = "<group>"; };
+		52E7DB112F117A0000CCA28A /* SignalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalStore.swift; sourceTree = "<group>"; };
+		52E7DB132F117A0000CCA28A /* SignalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalService.swift; sourceTree = "<group>"; };
+		52E7DB212F118A0000CCA28A /* MessagingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingModels.swift; sourceTree = "<group>"; };
+		52E7DB232F118A0000CCA28A /* MessagingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingService.swift; sourceTree = "<group>"; };
+		52E7DB312F118B0000CCA28A /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
+		52E7DB332F118B0000CCA28A /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
+		52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeMessageView.swift; sourceTree = "<group>"; };
+		52E7DB372F118B0000CCA28A /* MessagesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesTabView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -79,6 +97,8 @@
 			isa = PBXGroup;
 			children = (
 				52E7DAE62F1151EC00CCA28A /* KeyManager.swift */,
+				52E7DB112F117A0000CCA28A /* SignalStore.swift */,
+				52E7DB132F117A0000CCA28A /* SignalService.swift */,
 			);
 			path = Crypto;
 			sourceTree = "<group>";
@@ -145,6 +165,7 @@
 			isa = PBXGroup;
 			children = (
 				52E7DB082F1152EC00CCA28A /* FeedService.swift */,
+				52E7DB0E2F116A0000CCA28A /* MediaService.swift */,
 			);
 			path = Feed;
 			sourceTree = "<group>";
@@ -173,6 +194,43 @@
 			path = Invites;
 			sourceTree = "<group>";
 		};
+		52E7DB242F118A0000CCA28A /* Messaging */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB252F118A0000CCA28A /* Models */,
+				52E7DB262F118A0000CCA28A /* Services */,
+				52E7DB302F118B0000CCA28A /* Views */,
+			);
+			path = Messaging;
+			sourceTree = "<group>";
+		};
+		52E7DB252F118A0000CCA28A /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB212F118A0000CCA28A /* MessagingModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		52E7DB262F118A0000CCA28A /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB232F118A0000CCA28A /* MessagingService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		52E7DB302F118B0000CCA28A /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB312F118B0000CCA28A /* ConversationView.swift */,
+				52E7DB332F118B0000CCA28A /* MessageBubbleView.swift */,
+				52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */,
+				52E7DB372F118B0000CCA28A /* MessagesTabView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
 		52E7DAF62F1151EC00CCA28A /* Features */ = {
 			isa = PBXGroup;
 			children = (
@@ -182,6 +240,7 @@
 				52E7DAF32F1151EC00CCA28A /* Feed */,
 				52E7DB042F1151EC00CCA28A /* Invites */,
 				52E7DAF42F1151EC00CCA28A /* Map */,
+				52E7DB242F118A0000CCA28A /* Messaging */,
 				52E7DAF52F1151EC00CCA28A /* Settings */,
 			);
 			path = Features;
@@ -290,6 +349,15 @@
 				52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */,
 				52E7DB092F115A0000CCA28A /* MapService.swift in Sources */,
 				52E7DB0C2F115B0000CCA28A /* EventsService.swift in Sources */,
+				52E7DB0D2F116A0000CCA28A /* MediaService.swift in Sources */,
+				52E7DB102F117A0000CCA28A /* SignalStore.swift in Sources */,
+				52E7DB122F117A0000CCA28A /* SignalService.swift in Sources */,
+				52E7DB202F118A0000CCA28A /* MessagingModels.swift in Sources */,
+				52E7DB222F118A0000CCA28A /* MessagingService.swift in Sources */,
+				52E7DB322F118B0000CCA28A /* ConversationView.swift in Sources */,
+				52E7DB342F118B0000CCA28A /* MessageBubbleView.swift in Sources */,
+				52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */,
+				52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

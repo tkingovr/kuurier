@@ -60,6 +60,38 @@ final class APIClient {
         return try await execute(request)
     }
 
+    // MARK: - Multipart Upload
+
+    /// Uploads a file using multipart/form-data
+    func uploadMultipart<T: Decodable>(
+        _ path: String,
+        fileData: Data,
+        filename: String,
+        mimeType: String,
+        fieldName: String = "file"
+    ) async throws -> T {
+        let boundary = "Boundary-\(UUID().uuidString)"
+
+        var request = try buildRequest(path: path, method: "POST")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+
+        // File part
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n".data(using: .utf8)!)
+
+        // Closing boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        return try await execute(request)
+    }
+
     // MARK: - Request Building
 
     private func buildRequest(path: String, method: String, queryItems: [URLQueryItem]? = nil) throws -> URLRequest {

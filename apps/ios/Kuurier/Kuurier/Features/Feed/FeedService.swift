@@ -75,12 +75,13 @@ final class FeedService: ObservableObject {
     // MARK: - Create Post
 
     /// Creates a new post
+    /// - Returns: Post ID on success, nil on failure
     @MainActor
-    func createPost(content: String, sourceType: SourceType, location: Location? = nil, locationName: String? = nil, urgency: Int = 1) async -> Bool {
+    func createPost(content: String, sourceType: SourceType, location: Location? = nil, locationName: String? = nil, urgency: Int = 1) async -> String? {
         // Prevent double-submit
         guard !isCreatingPost else {
             print("FeedService: Already creating a post, ignoring duplicate request")
-            return false
+            return nil
         }
 
         isCreatingPost = true
@@ -102,17 +103,23 @@ final class FeedService: ObservableObject {
 
             print("FeedService: Post created successfully with id=\(response.id)")
 
-            // Reset creating state before refreshing feed (so fetchFeed isn't blocked)
-            isCreatingPost = false
-
-            // Refresh feed to show new post
-            await fetchFeed(refresh: true)
-            return true
+            // Return the post ID - caller is responsible for any follow-up actions
+            // Note: isCreatingPost remains true until caller indicates completion
+            return response.id
         } catch {
             print("FeedService: Error creating post: \(error)")
             self.error = error.localizedDescription
             isCreatingPost = false
-            return false
+            return nil
+        }
+    }
+
+    /// Call this when post creation workflow is complete (after media uploads)
+    @MainActor
+    func finishPostCreation(success: Bool) async {
+        isCreatingPost = false
+        if success {
+            await fetchFeed(refresh: true)
         }
     }
 

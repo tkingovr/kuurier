@@ -11,7 +11,9 @@ import (
 	"github.com/kuurier/server/internal/feed"
 	"github.com/kuurier/server/internal/geo"
 	"github.com/kuurier/server/internal/invites"
+	"github.com/kuurier/server/internal/keys"
 	"github.com/kuurier/server/internal/media"
+	"github.com/kuurier/server/internal/messaging"
 	"github.com/kuurier/server/internal/middleware"
 	"github.com/kuurier/server/internal/storage"
 )
@@ -38,6 +40,10 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	// Initialize handlers
 	authHandler := auth.NewHandler(cfg, db)
 	invitesHandler := invites.NewHandler(cfg, db)
+	keysHandler := keys.NewHandler(cfg, db)
+	orgHandler := messaging.NewOrganizationHandler(cfg, db)
+	channelHandler := messaging.NewChannelHandler(cfg, db)
+	messageHandler := messaging.NewMessageHandler(cfg, db)
 	feedHandler := feed.NewHandler(cfg, db, redis)
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
@@ -82,6 +88,52 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				inviteRoutes.POST("", invitesHandler.GenerateInvite)
 				inviteRoutes.DELETE("/:code", invitesHandler.RevokeInvite)
 				inviteRoutes.GET("/stats", invitesHandler.GetInviteStats)
+			}
+
+			// Signal Protocol key management routes
+			keysRoutes := protected.Group("/keys")
+			{
+				keysRoutes.POST("/bundle", keysHandler.UploadBundle)           // Upload identity + signed pre-key + pre-keys
+				keysRoutes.GET("/bundle/:user_id", keysHandler.GetBundle)      // Fetch bundle (consumes pre-key)
+				keysRoutes.POST("/prekeys", keysHandler.UploadPreKeys)         // Replenish pre-keys
+				keysRoutes.GET("/prekey-count", keysHandler.GetPreKeyCount)    // Check remaining pre-keys
+				keysRoutes.PUT("/signed-prekey", keysHandler.UpdateSignedPreKey) // Rotate signed pre-key
+			}
+
+			// Organization routes (messaging)
+			orgRoutes := protected.Group("/orgs")
+			{
+				orgRoutes.GET("", orgHandler.ListOrganizations)           // List user's organizations
+				orgRoutes.POST("", orgHandler.CreateOrganization)         // Create organization
+				orgRoutes.GET("/discover", orgHandler.ListPublicOrganizations) // Discover public orgs
+				orgRoutes.GET("/:id", orgHandler.GetOrganization)         // Get organization details
+				orgRoutes.PUT("/:id", orgHandler.UpdateOrganization)      // Update organization (admin)
+				orgRoutes.DELETE("/:id", orgHandler.DeleteOrganization)   // Delete organization (admin)
+				orgRoutes.POST("/:id/join", orgHandler.JoinOrganization)  // Join public org
+				orgRoutes.POST("/:id/leave", orgHandler.LeaveOrganization) // Leave organization
+			}
+
+			// Channel routes (messaging)
+			channelRoutes := protected.Group("/channels")
+			{
+				channelRoutes.GET("", channelHandler.ListChannels)              // List user's channels
+				channelRoutes.POST("", channelHandler.CreateChannel)            // Create channel
+				channelRoutes.POST("/dm", channelHandler.GetOrCreateDM)         // Get or create DM
+				channelRoutes.GET("/:id", channelHandler.GetChannel)            // Get channel details
+				channelRoutes.POST("/:id/members", channelHandler.AddChannelMember)     // Add member
+				channelRoutes.DELETE("/:id/members/:user_id", channelHandler.RemoveChannelMember) // Remove member
+				channelRoutes.POST("/:id/read", channelHandler.MarkChannelRead) // Mark as read
+			}
+
+			// Message routes (E2E encrypted messages)
+			messageRoutes := protected.Group("/messages")
+			{
+				messageRoutes.POST("", messageHandler.SendMessage)                    // Send encrypted message
+				messageRoutes.GET("/:channel_id", messageHandler.GetMessages)         // Get message history
+				messageRoutes.PUT("/:id", messageHandler.EditMessage)                 // Edit message
+				messageRoutes.DELETE("/:id", messageHandler.DeleteMessage)            // Delete message
+				messageRoutes.POST("/:id/react", messageHandler.AddReaction)          // Add reaction
+				messageRoutes.DELETE("/:id/react", messageHandler.RemoveReaction)     // Remove reaction
 			}
 
 			// Feed routes
