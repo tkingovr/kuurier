@@ -317,7 +317,11 @@ func (h *ChannelHandler) AddChannelMember(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "member added"})
+	// Trigger key rotation by deleting all sender keys
+	// This forces all members to regenerate their keys
+	_, _ = h.db.Pool().Exec(ctx, `DELETE FROM channel_sender_keys WHERE channel_id = $1`, channelID)
+
+	c.JSON(http.StatusOK, gin.H{"message": "member added", "keys_rotated": true})
 }
 
 // RemoveChannelMember removes a member from a channel
@@ -352,7 +356,10 @@ func (h *ChannelHandler) RemoveChannelMember(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "member removed"})
+	// Delete removed member's sender key and trigger rotation for remaining members
+	_, _ = h.db.Pool().Exec(ctx, `DELETE FROM channel_sender_keys WHERE channel_id = $1`, channelID)
+
+	c.JSON(http.StatusOK, gin.H{"message": "member removed", "keys_rotated": true})
 }
 
 // MarkChannelRead marks all messages in a channel as read

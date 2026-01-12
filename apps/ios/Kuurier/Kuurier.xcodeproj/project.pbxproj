@@ -30,6 +30,7 @@
 		52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */; };
 		52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB372F118B0000CCA28A /* MessagesTabView.swift */; };
 		52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB412F118C0000CCA28A /* WebSocketService.swift */; };
+		52E7DB522F119A0000CCA28A /* SenderKeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB502F119A0000CCA28A /* SenderKeyService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +58,7 @@
 		52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeMessageView.swift; sourceTree = "<group>"; };
 		52E7DB372F118B0000CCA28A /* MessagesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesTabView.swift; sourceTree = "<group>"; };
 		52E7DB412F118C0000CCA28A /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
+		52E7DB502F119A0000CCA28A /* SenderKeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenderKeyService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,6 +101,7 @@
 			isa = PBXGroup;
 			children = (
 				52E7DAE62F1151EC00CCA28A /* KeyManager.swift */,
+				52E7DB502F119A0000CCA28A /* SenderKeyService.swift */,
 				52E7DB112F117A0000CCA28A /* SignalStore.swift */,
 				52E7DB132F117A0000CCA28A /* SignalService.swift */,
 			);
@@ -362,6 +365,7 @@
 				52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */,
 				52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */,
 				52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */,
+				52E7DB522F119A0000CCA28A /* SenderKeyService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

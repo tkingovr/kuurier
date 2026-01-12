@@ -157,6 +157,7 @@ final class ConversationViewModel: ObservableObject {
     private let channel: Channel
     private let api = APIClient.shared
     private let signalService = SignalService.shared
+    private let senderKeyService = SenderKeyService.shared
     private let wsService = WebSocketService.shared
 
     init(channel: Channel) {
@@ -210,6 +211,11 @@ final class ConversationViewModel: ObservableObject {
         error = nil
 
         do {
+            // For group channels, fetch sender keys before loading messages
+            if channel.type != .dm {
+                try await senderKeyService.fetchSenderKeys(for: channel.id)
+            }
+
             let response: MessagesResponse = try await api.get("/messages/\(channel.id)")
             // Messages come newest first, reverse for display
             var decryptedMessages = response.messages.reversed().map { $0 }
@@ -288,9 +294,10 @@ final class ConversationViewModel: ObservableObject {
             // DM: Use Signal Protocol 1:1 encryption
             return try await signalService.encrypt(contentData, for: otherUserId)
         } else {
-            // Group: For now, use simple encoding (Phase 5 will add Sender Keys)
-            // TODO: Implement group encryption with Sender Keys
-            return contentData
+            // Group: Use Sender Keys for efficient group encryption
+            let groupCiphertext = try await senderKeyService.encryptForGroup(contentData, channelId: channel.id)
+            // Encode the GroupCiphertext as JSON for transport
+            return try JSONEncoder().encode(groupCiphertext)
         }
     }
 
@@ -301,8 +308,19 @@ final class ConversationViewModel: ObservableObject {
                 return String(data: decrypted, encoding: .utf8)
             }
         } else {
-            // Group: Simple decoding for now
-            return String(data: message.ciphertext, encoding: .utf8)
+            // Group: Decode GroupCiphertext and decrypt with Sender Keys
+            do {
+                let groupCiphertext = try JSONDecoder().decode(GroupCiphertext.self, from: message.ciphertext)
+                let decrypted = try await senderKeyService.decryptFromGroup(
+                    groupCiphertext,
+                    from: message.senderId,
+                    channelId: channel.id
+                )
+                return String(data: decrypted, encoding: .utf8)
+            } catch {
+                print("Group decryption failed: \(error)")
+                return "[Unable to decrypt]"
+            }
         }
         return "[Unable to decrypt]"
     }

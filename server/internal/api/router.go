@@ -50,6 +50,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	orgHandler := messaging.NewOrganizationHandler(cfg, db)
 	channelHandler := messaging.NewChannelHandler(cfg, db)
 	messageHandler := messaging.NewMessageHandler(cfg, db)
+	groupHandler := messaging.NewGroupHandler(cfg, db)
 	feedHandler := feed.NewHandler(cfg, db, redis)
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
@@ -140,6 +141,17 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				messageRoutes.DELETE("/:id", messageHandler.DeleteMessage)            // Delete message
 				messageRoutes.POST("/:id/react", messageHandler.AddReaction)          // Add reaction
 				messageRoutes.DELETE("/:id/react", messageHandler.RemoveReaction)     // Remove reaction
+			}
+
+			// Group encryption routes (Sender Keys)
+			groupRoutes := protected.Group("/groups")
+			{
+				groupRoutes.POST("/sender-key", groupHandler.UploadSenderKey)                    // Upload sender key
+				groupRoutes.GET("/:channel_id/sender-keys", groupHandler.GetSenderKeys)          // Get all sender keys
+				groupRoutes.GET("/:channel_id/sender-keys/:user_id", groupHandler.GetSenderKey)  // Get specific sender key
+				groupRoutes.DELETE("/:channel_id/sender-key", groupHandler.DeleteSenderKey)      // Delete own sender key
+				groupRoutes.POST("/:channel_id/rotate-keys", groupHandler.RotateChannelKeys)     // Force key rotation
+				groupRoutes.GET("/:channel_id/key-status", groupHandler.GetChannelKeyStatus)     // Check key status
 			}
 
 			// Feed routes
