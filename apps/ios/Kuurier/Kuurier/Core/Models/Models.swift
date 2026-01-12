@@ -176,6 +176,31 @@ struct Event: Codable, Identifiable {
     let rsvpCount: Int?
     let userRsvp: RSVPStatus?
     let distanceMeters: Int?
+    let channelId: String?               // Event chat channel ID
+    let isChannelMember: Bool?           // Whether user is member of event channel
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case organizerId = "organizer_id"
+        case title
+        case description
+        case eventType = "event_type"
+        case location
+        case locationName = "location_name"
+        case locationArea = "location_area"
+        case locationVisibility = "location_visibility"
+        case locationRevealed = "location_revealed"
+        case locationRevealAt = "location_reveal_at"
+        case locationHint = "location_hint"
+        case startsAt = "starts_at"
+        case endsAt = "ends_at"
+        case isCancelled = "is_cancelled"
+        case rsvpCount = "rsvp_count"
+        case userRsvp = "user_rsvp"
+        case distanceMeters = "distance_meters"
+        case channelId = "channel_id"
+        case isChannelMember = "is_channel_member"
+    }
 }
 
 enum EventType: String, Codable, CaseIterable {

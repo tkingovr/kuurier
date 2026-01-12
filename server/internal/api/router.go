@@ -51,6 +51,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	channelHandler := messaging.NewChannelHandler(cfg, db)
 	messageHandler := messaging.NewMessageHandler(cfg, db)
 	groupHandler := messaging.NewGroupHandler(cfg, db)
+	governanceHandler := messaging.NewGovernanceHandler(cfg, db)
 	feedHandler := feed.NewHandler(cfg, db, redis)
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
@@ -115,10 +116,21 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				orgRoutes.GET("/discover", orgHandler.ListPublicOrganizations) // Discover public orgs
 				orgRoutes.GET("/:id", orgHandler.GetOrganization)         // Get organization details
 				orgRoutes.PUT("/:id", orgHandler.UpdateOrganization)      // Update organization (admin)
-				orgRoutes.DELETE("/:id", orgHandler.DeleteOrganization)   // Delete organization (admin)
+				orgRoutes.DELETE("/:id", governanceHandler.SafeDeleteOrganization) // Delete organization (with safeguards)
 				orgRoutes.POST("/:id/join", orgHandler.JoinOrganization)  // Join public org
 				orgRoutes.POST("/:id/leave", orgHandler.LeaveOrganization) // Leave organization
+
+				// Governance routes
+				orgRoutes.GET("/:id/governance", governanceHandler.GetOrgGovernanceInfo)        // Get governance info
+				orgRoutes.POST("/:id/promote", governanceHandler.PromoteToAdmin)               // Promote member to admin
+				orgRoutes.DELETE("/:id/admins/:user_id", governanceHandler.DemoteFromAdmin)    // Demote admin to member
+				orgRoutes.POST("/:id/transfer", governanceHandler.RequestAdminTransfer)        // Request admin transfer
+				orgRoutes.POST("/:id/archive", governanceHandler.ArchiveOrganization)          // Archive organization
+				orgRoutes.POST("/:id/unarchive", governanceHandler.UnarchiveOrganization)      // Restore archived org
 			}
+
+			// Admin transfer response (separate endpoint for recipient)
+			protected.POST("/admin-transfers/:request_id/respond", governanceHandler.RespondToTransfer)
 
 			// Channel routes (messaging)
 			channelRoutes := protected.Group("/channels")
@@ -130,6 +142,12 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				channelRoutes.POST("/:id/members", channelHandler.AddChannelMember)     // Add member
 				channelRoutes.DELETE("/:id/members/:user_id", channelHandler.RemoveChannelMember) // Remove member
 				channelRoutes.POST("/:id/read", channelHandler.MarkChannelRead) // Mark as read
+
+				// Channel governance
+				channelRoutes.POST("/:id/archive", governanceHandler.ArchiveChannel)    // Archive channel
+				channelRoutes.POST("/:id/unarchive", governanceHandler.UnarchiveChannel) // Restore channel
+				channelRoutes.POST("/:id/hide", governanceHandler.HideConversation)     // Hide conversation (DM)
+				channelRoutes.POST("/:id/unhide", governanceHandler.UnhideConversation) // Unhide conversation
 			}
 
 			// Message routes (E2E encrypted messages)

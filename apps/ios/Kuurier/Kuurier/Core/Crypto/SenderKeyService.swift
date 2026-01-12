@@ -23,7 +23,60 @@ final class SenderKeyService: ObservableObject {
     // Our sender keys: channelId -> OwnSenderKey
     private var ownSenderKeys: [String: OwnSenderKey] = [:]
 
-    private init() {}
+    // Key for storing own sender keys in UserDefaults (encrypted data stored in Keychain)
+    private let ownSenderKeysStorageKey = "com.kuurier.ownSenderKeys"
+
+    private init() {
+        // Load persisted sender keys on initialization
+        loadPersistedSenderKeys()
+    }
+
+    // MARK: - Persistence
+
+    /// Saves own sender keys to secure storage
+    private func persistSenderKeys() {
+        var keysToStore: [String: [String: Any]] = [:]
+
+        for (channelId, key) in ownSenderKeys {
+            let keyData = key.chainKey.withUnsafeBytes { Data($0) }
+            keysToStore[channelId] = [
+                "distributionId": key.distributionId,
+                "chainKey": keyData.base64EncodedString(),
+                "iteration": key.iteration
+            ]
+        }
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: keysToStore) {
+            // Store in Keychain via SecureStorage
+            try? secureStorage.setData(jsonData, forKey: ownSenderKeysStorageKey)
+        }
+    }
+
+    /// Loads sender keys from secure storage
+    private func loadPersistedSenderKeys() {
+        guard let jsonData = secureStorage.getData(forKey: ownSenderKeysStorageKey),
+              let keysDict = try? JSONSerialization.jsonObject(with: jsonData) as? [String: [String: Any]] else {
+            return
+        }
+
+        for (channelId, keyDict) in keysDict {
+            guard let distributionId = keyDict["distributionId"] as? String,
+                  let chainKeyBase64 = keyDict["chainKey"] as? String,
+                  let chainKeyData = Data(base64Encoded: chainKeyBase64),
+                  let iteration = keyDict["iteration"] as? Int else {
+                continue
+            }
+
+            let chainKey = SymmetricKey(data: chainKeyData)
+            ownSenderKeys[channelId] = OwnSenderKey(
+                distributionId: distributionId,
+                chainKey: chainKey,
+                iteration: iteration
+            )
+        }
+
+        isInitialized = true
+    }
 
     // MARK: - Sender Key Types
 
@@ -55,6 +108,9 @@ final class SenderKeyService: ObservableObject {
 
         // Store locally
         ownSenderKeys[channelId] = senderKey
+
+        // Persist to secure storage
+        persistSenderKeys()
 
         // Upload to server
         try await uploadSenderKey(for: channelId, senderKey: senderKey)
@@ -139,8 +195,9 @@ final class SenderKeyService: ObservableObject {
             throw SenderKeyError.encryptionFailed
         }
 
-        // Increment iteration
+        // Increment iteration and persist
         ownSenderKeys[channelId]?.iteration += 1
+        persistSenderKeys()
 
         return GroupCiphertext(
             distributionId: senderKey.distributionId,
@@ -151,18 +208,32 @@ final class SenderKeyService: ObservableObject {
 
     /// Decrypts a group message using the sender's key
     func decryptFromGroup(_ ciphertext: GroupCiphertext, from senderId: String, channelId: String) async throws -> Data {
-        // Get the sender's key
-        guard let senderKey = try await getSenderKey(for: senderId, in: channelId) else {
-            throw SenderKeyError.senderKeyNotFound
+        // Check if this is our own message
+        let currentUserId = secureStorage.userID
+
+        var chainKey: SymmetricKey
+        var distributionId: String
+
+        if senderId == currentUserId, let ownKey = ownSenderKeys[channelId] {
+            // Use our own persisted key for our messages
+            chainKey = ownKey.chainKey
+            distributionId = ownKey.distributionId
+        } else {
+            // Get the sender's key from cache/server
+            guard let senderKey = try await getSenderKey(for: senderId, in: channelId) else {
+                throw SenderKeyError.senderKeyNotFound
+            }
+            chainKey = senderKey.chainKey
+            distributionId = senderKey.distributionId
         }
 
         // Verify distribution ID matches
-        guard senderKey.distributionId == ciphertext.distributionId else {
+        guard distributionId == ciphertext.distributionId else {
             throw SenderKeyError.invalidDistributionId
         }
 
         // Derive message key at the correct iteration
-        let messageKey = deriveMessageKey(from: senderKey.chainKey, iteration: ciphertext.iteration)
+        let messageKey = deriveMessageKey(from: chainKey, iteration: ciphertext.iteration)
 
         // Decrypt with AES-GCM
         let sealedBox = try AES.GCM.SealedBox(combined: ciphertext.ciphertext)
@@ -192,6 +263,7 @@ final class SenderKeyService: ObservableObject {
         // Clear local key
         ownSenderKeys.removeValue(forKey: channelId)
         senderKeyCache.removeValue(forKey: channelId)
+        persistSenderKeys()
 
         // Generate and upload new key
         _ = try await generateSenderKey(for: channelId)
@@ -201,12 +273,14 @@ final class SenderKeyService: ObservableObject {
     func clearChannelKeys(for channelId: String) {
         senderKeyCache.removeValue(forKey: channelId)
         ownSenderKeys.removeValue(forKey: channelId)
+        persistSenderKeys()
     }
 
     /// Clears all cached keys
     func clearAllKeys() {
         senderKeyCache.removeAll()
         ownSenderKeys.removeAll()
+        persistSenderKeys()
     }
 
     // MARK: - Key Status

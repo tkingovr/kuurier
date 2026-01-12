@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Organizations
 
 /// Represents an organization (top-level grouping for channels)
-struct Organization: Identifiable, Codable {
+struct Organization: Identifiable, Codable, Hashable {
     let id: String
     let name: String
     let description: String?
@@ -22,6 +22,15 @@ struct Organization: Identifiable, Codable {
         case createdAt = "created_at"
         case memberCount = "member_count"
         case role
+    }
+
+    // Hashable conformance based on id
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    static func == (lhs: Organization, rhs: Organization) -> Bool {
+        lhs.id == rhs.id
     }
 }
 
@@ -73,6 +82,41 @@ struct Channel: Identifiable, Codable, Hashable {
         case unreadCount = "unread_count"
         case lastActivity = "last_activity"
         case otherUserId = "other_user_id"
+    }
+
+    // Custom decoder to handle missing optional fields
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        orgId = try container.decodeIfPresent(String.self, forKey: .orgId)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        type = try container.decode(ChannelType.self, forKey: .type)
+        eventId = try container.decodeIfPresent(String.self, forKey: .eventId)
+        createdBy = try container.decode(String.self, forKey: .createdBy)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        memberCount = try container.decodeIfPresent(Int.self, forKey: .memberCount) ?? 0
+        unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
+        lastActivity = try container.decodeIfPresent(Date.self, forKey: .lastActivity)
+        otherUserId = try container.decodeIfPresent(String.self, forKey: .otherUserId)
+    }
+
+    // Standard initializer for creating channels programmatically
+    init(id: String, orgId: String?, name: String?, description: String?, type: ChannelType,
+         eventId: String?, createdBy: String, createdAt: Date, memberCount: Int,
+         unreadCount: Int, lastActivity: Date?, otherUserId: String?) {
+        self.id = id
+        self.orgId = orgId
+        self.name = name
+        self.description = description
+        self.type = type
+        self.eventId = eventId
+        self.createdBy = createdBy
+        self.createdAt = createdAt
+        self.memberCount = memberCount
+        self.unreadCount = unreadCount
+        self.lastActivity = lastActivity
+        self.otherUserId = otherUserId
     }
 
     /// Display name for the channel
@@ -276,4 +320,76 @@ struct UserPresence {
     let userId: String
     var isOnline: Bool
     var lastSeen: Date?
+}
+
+// MARK: - Governance
+
+/// Organization governance information
+struct OrgGovernanceInfo: Decodable {
+    let orgId: String
+    let name: String
+    let userRole: String
+    let adminCount: Int
+    let memberCount: Int
+    let minAdmins: Int
+    let isArchived: Bool
+    let canLeave: Bool
+    let canDelete: Bool
+    let pendingTransfers: [PendingTransfer]
+
+    enum CodingKeys: String, CodingKey {
+        case orgId = "org_id"
+        case name
+        case userRole = "user_role"
+        case adminCount = "admin_count"
+        case memberCount = "member_count"
+        case minAdmins = "min_admins"
+        case isArchived = "is_archived"
+        case canLeave = "can_leave"
+        case canDelete = "can_delete"
+        case pendingTransfers = "pending_transfers"
+    }
+}
+
+/// Pending admin transfer request
+struct PendingTransfer: Identifiable, Decodable {
+    let id: String
+    let fromUserId: String
+    let expiresAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case fromUserId = "from_user_id"
+        case expiresAt = "expires_at"
+    }
+}
+
+/// Admin transfer response
+struct AdminTransferResponse: Decodable {
+    let id: String?
+    let message: String
+    let expiresAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case message
+        case expiresAt = "expires_at"
+    }
+}
+
+/// Delete safeguard error response
+struct DeleteSafeguardError: Decodable {
+    let error: String
+    let reasons: [String]?
+    let suggestion: String?
+    let memberCount: Int?
+    let hasMessages: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case reasons
+        case suggestion
+        case memberCount = "member_count"
+        case hasMessages = "has_messages"
+    }
 }

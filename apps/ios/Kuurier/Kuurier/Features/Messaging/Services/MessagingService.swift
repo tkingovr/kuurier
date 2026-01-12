@@ -96,7 +96,15 @@ final class MessagingService: ObservableObject {
             }
 
             let response: ChannelsResponse = try await api.get("/channels", queryItems: queryItems.isEmpty ? nil : queryItems)
-            channels = response.channels
+
+            // When fetching for a specific org, merge with existing channels
+            if let orgId = orgId {
+                // Remove old channels for this org, add new ones
+                channels.removeAll { $0.orgId == orgId }
+                channels.append(contentsOf: response.channels)
+            } else {
+                channels = response.channels
+            }
 
             // Update total unread count
             totalUnreadCount = channels.reduce(0) { $0 + $1.unreadCount }
@@ -193,12 +201,102 @@ final class MessagingService: ObservableObject {
 
     /// Returns channels grouped by organization
     var channelsByOrg: [String: [Channel]] {
-        Dictionary(grouping: channels.filter { $0.type != .dm }) { $0.orgId ?? "" }
+        Dictionary(grouping: channels.filter { $0.type != .dm && $0.type != .event && $0.orgId != nil }) { $0.orgId ?? "" }
     }
 
     /// Returns DM channels
     var dmChannels: [Channel] {
         channels.filter { $0.type == .dm }
+    }
+
+    /// Returns event channels
+    var eventChannels: [Channel] {
+        channels.filter { $0.type == .event }
+    }
+
+    // MARK: - Governance
+
+    /// Fetches governance info for an organization
+    @MainActor
+    func getGovernanceInfo(orgId: String) async throws -> OrgGovernanceInfo {
+        return try await api.get("/orgs/\(orgId)/governance")
+    }
+
+    /// Promotes a member to admin
+    @MainActor
+    func promoteToAdmin(orgId: String, userId: String) async throws {
+        let request = ["user_id": userId]
+        let _: MessageResponse = try await api.post("/orgs/\(orgId)/promote", body: request)
+    }
+
+    /// Demotes an admin to member
+    @MainActor
+    func demoteFromAdmin(orgId: String, userId: String) async throws {
+        let _: MessageResponse = try await api.delete("/orgs/\(orgId)/admins/\(userId)")
+    }
+
+    /// Requests admin transfer to another user
+    @MainActor
+    func requestAdminTransfer(orgId: String, toUserId: String) async throws -> AdminTransferResponse {
+        let request = ["to_user_id": toUserId]
+        return try await api.post("/orgs/\(orgId)/transfer", body: request)
+    }
+
+    /// Responds to an admin transfer request
+    @MainActor
+    func respondToTransfer(requestId: String, accept: Bool) async throws {
+        let request = ["accept": accept]
+        let _: MessageResponse = try await api.post("/admin-transfers/\(requestId)/respond", body: request)
+    }
+
+    /// Archives an organization (soft delete)
+    @MainActor
+    func archiveOrganization(id: String) async throws {
+        let _: MessageResponse = try await api.post("/orgs/\(id)/archive", body: EmptyRequest())
+        // Remove from local list
+        organizations.removeAll { $0.id == id }
+    }
+
+    /// Unarchives an organization
+    @MainActor
+    func unarchiveOrganization(id: String) async throws {
+        let _: MessageResponse = try await api.post("/orgs/\(id)/unarchive", body: EmptyRequest())
+        await fetchOrganizations()
+    }
+
+    /// Deletes an organization (with safeguards)
+    @MainActor
+    func deleteOrganization(id: String) async throws {
+        let _: MessageResponse = try await api.delete("/orgs/\(id)")
+        organizations.removeAll { $0.id == id }
+    }
+
+    /// Hides a conversation from view
+    @MainActor
+    func hideConversation(channelId: String) async throws {
+        let _: MessageResponse = try await api.post("/channels/\(channelId)/hide", body: EmptyRequest())
+        channels.removeAll { $0.id == channelId }
+    }
+
+    /// Unhides a conversation
+    @MainActor
+    func unhideConversation(channelId: String) async throws {
+        let _: MessageResponse = try await api.post("/channels/\(channelId)/unhide", body: EmptyRequest())
+        await fetchChannels()
+    }
+
+    /// Archives a channel
+    @MainActor
+    func archiveChannel(channelId: String) async throws {
+        let _: MessageResponse = try await api.post("/channels/\(channelId)/archive", body: EmptyRequest())
+        channels.removeAll { $0.id == channelId }
+    }
+
+    /// Unarchives a channel
+    @MainActor
+    func unarchiveChannel(channelId: String) async throws {
+        let _: MessageResponse = try await api.post("/channels/\(channelId)/unarchive", body: EmptyRequest())
+        await fetchChannels()
     }
 }
 

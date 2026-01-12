@@ -28,8 +28,27 @@ final class APIClient {
         #endif
 
         self.decoder = JSONDecoder()
-        self.decoder.dateDecodingStrategy = .iso8601
-        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
+        self.decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let dateString = try container.decode(String.self)
+
+            // Try ISO8601 with fractional seconds (Go's default format)
+            let iso8601WithFractional = ISO8601DateFormatter()
+            iso8601WithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = iso8601WithFractional.date(from: dateString) {
+                return date
+            }
+
+            // Fallback to standard ISO8601
+            let iso8601 = ISO8601DateFormatter()
+            iso8601.formatOptions = [.withInternetDateTime]
+            if let date = iso8601.date(from: dateString) {
+                return date
+            }
+
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date: \(dateString)")
+        }
+        // Note: Not using .convertFromSnakeCase since models have explicit CodingKeys
 
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601

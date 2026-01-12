@@ -7,10 +7,10 @@ import PhotosUI
 struct ContentView: View {
 
     @EnvironmentObject var authService: AuthService
-    @State private var selectedTab: Tab = .feed
+    @State private var selectedTab: Tab = .discover
 
     enum Tab {
-        case feed, messages, map, events, alerts, settings
+        case discover, messages, events, alerts, settings
     }
 
     var body: some View {
@@ -26,23 +26,17 @@ struct ContentView: View {
 
     private var mainTabView: some View {
         TabView(selection: $selectedTab) {
-            FeedView()
+            DiscoverView()
                 .tabItem {
-                    Label("Feed", systemImage: "newspaper")
+                    Label("Discover", systemImage: "globe")
                 }
-                .tag(Tab.feed)
+                .tag(Tab.discover)
 
             MessagesTabView()
                 .tabItem {
                     Label("Messages", systemImage: "bubble.left.and.bubble.right")
                 }
                 .tag(Tab.messages)
-
-            MapView()
-                .tabItem {
-                    Label("Map", systemImage: "map")
-                }
-                .tag(Tab.map)
 
             EventsView()
                 .tabItem {
@@ -66,7 +60,315 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Placeholder Views
+// MARK: - Discover View (Combined Feed + Map)
+
+struct DiscoverView: View {
+    @State private var viewMode: DiscoverMode = .feed
+
+    enum DiscoverMode: String, CaseIterable {
+        case feed = "Feed"
+        case map = "Map"
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // View mode picker
+                Picker("View", selection: $viewMode) {
+                    ForEach(DiscoverMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                // Content based on selected mode
+                switch viewMode {
+                case .feed:
+                    FeedContentView()
+                case .map:
+                    MapContentView()
+                }
+            }
+            .navigationTitle("Discover")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    if viewMode == .feed {
+                        FeedComposeButton()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Feed Content View (without NavigationStack)
+
+struct FeedContentView: View {
+    @EnvironmentObject var authService: AuthService
+    @StateObject private var feedService = FeedService.shared
+    @State private var showComposeSheet = false
+    @State private var showLockedAlert = false
+
+    private var canPost: Bool {
+        guard let user = authService.currentUser else { return false }
+        return user.trustScore >= 25
+    }
+
+    var body: some View {
+        Group {
+            if feedService.posts.isEmpty && !feedService.isLoading {
+                ContentUnavailableView(
+                    "No posts yet",
+                    systemImage: "newspaper",
+                    description: Text("Be the first to share what's happening")
+                )
+            } else {
+                List {
+                    ForEach(feedService.posts) { post in
+                        PostRowView(post: post)
+                    }
+
+                    if feedService.isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                .listStyle(.plain)
+                .refreshable {
+                    await feedService.fetchFeed()
+                }
+            }
+        }
+        .sheet(isPresented: $showComposeSheet) {
+            ComposePostView()
+        }
+        .task {
+            await feedService.fetchFeed()
+        }
+    }
+}
+
+// MARK: - Map Content View (without NavigationStack)
+
+struct MapContentView: View {
+    @StateObject private var mapService = MapService.shared
+    @StateObject private var eventsService = EventsService.shared
+    @State private var cameraPosition: MapCameraPosition = .region(MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 25.0, longitude: 30.0),
+        span: MKCoordinateSpan(latitudeDelta: 100, longitudeDelta: 150)
+    ))
+    @State private var selectedMarker: MapMarker?
+    @State private var showMarkerDetail = false
+    @State private var selectedEvent: Event?
+    @State private var showEventDetail = false
+    @State private var publicEvents: [Event] = []
+    @State private var heatmapCells: [HeatmapCell] = []
+    @State private var currentZoom: Int = 5
+
+    var body: some View {
+        ZStack {
+            Map(position: $cameraPosition) {
+                UserAnnotation()
+
+                // Heatmap zones
+                ForEach(heatmapCells, id: \.latitude) { cell in
+                    MapCircle(
+                        center: CLLocationCoordinate2D(latitude: cell.latitude, longitude: cell.longitude),
+                        radius: heatmapRadius(for: currentZoom, count: cell.count)
+                    )
+                    .foregroundStyle(heatmapColor(for: cell).opacity(0.4))
+                    .stroke(heatmapColor(for: cell), lineWidth: cell.maxUrgency >= 3 ? 3 : 1)
+                }
+
+                // Markers from API
+                ForEach(mapService.markers) { marker in
+                    if marker.type == .cluster {
+                        Annotation("", coordinate: marker.coordinate) {
+                            ClusterMarkerView(
+                                count: marker.count ?? 0,
+                                maxUrgency: marker.maxUrgency ?? 1
+                            )
+                        }
+                    } else {
+                        Annotation("", coordinate: marker.coordinate) {
+                            PostMarkerView(
+                                urgency: marker.maxUrgency ?? 1,
+                                sourceType: marker.sourceType ?? "firsthand"
+                            )
+                            .onTapGesture {
+                                selectedMarker = marker
+                                showMarkerDetail = true
+                            }
+                        }
+                    }
+                }
+
+                // Public events
+                ForEach(publicEvents) { event in
+                    if let location = event.location {
+                        Annotation("", coordinate: location.coordinate) {
+                            EventMarkerView(eventType: event.eventType)
+                                .onTapGesture {
+                                    selectedEvent = event
+                                    showEventDetail = true
+                                }
+                        }
+                    }
+                }
+            }
+            .mapStyle(.standard(elevation: .realistic))
+            .mapControls {
+                MapUserLocationButton()
+                MapCompass()
+                MapScaleView()
+            }
+            .onMapCameraChange(frequency: .onEnd) { context in
+                let region = context.region
+                let zoom = calculateZoom(from: region.span.latitudeDelta)
+                currentZoom = zoom
+
+                Task {
+                    // Create MapRegion from the visible region
+                    let mapRegion = MapRegion(
+                        minLat: region.center.latitude - region.span.latitudeDelta / 2,
+                        maxLat: region.center.latitude + region.span.latitudeDelta / 2,
+                        minLon: region.center.longitude - region.span.longitudeDelta / 2,
+                        maxLon: region.center.longitude + region.span.longitudeDelta / 2
+                    )
+
+                    let gridSize = gridSizeForZoom(zoom)
+                    heatmapCells = await mapService.fetchHeatmap(region: mapRegion, gridSize: gridSize)
+
+                    await mapService.fetchMarkers(region: mapRegion, zoom: zoom)
+
+                    publicEvents = await eventsService.fetchPublicEventsForMap(
+                        minLat: mapRegion.minLat,
+                        maxLat: mapRegion.maxLat,
+                        minLon: mapRegion.minLon,
+                        maxLon: mapRegion.maxLon
+                    )
+                }
+            }
+        }
+        .sheet(isPresented: $showMarkerDetail) {
+            if let marker = selectedMarker {
+                NavigationStack {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let content = marker.content {
+                            Text(content)
+                                .font(.body)
+                        }
+                        if let createdAt = marker.createdAt {
+                            Text(createdAt, style: .relative)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        if let sourceType = marker.sourceType {
+                            HStack {
+                                Image(systemName: sourceType == "firsthand" ? "person.fill" : "arrow.triangle.branch")
+                                Text(sourceType.capitalized)
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding()
+                    .navigationTitle(marker.type == .cluster ? "Cluster (\(marker.count ?? 0))" : "Post")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showMarkerDetail = false }
+                        }
+                    }
+                }
+                .presentationDetents([.medium])
+            }
+        }
+        .sheet(isPresented: $showEventDetail) {
+            if let event = selectedEvent {
+                EventDetailView(event: event)
+            }
+        }
+    }
+
+    private func heatmapRadius(for zoom: Int, count: Int) -> CLLocationDistance {
+        let baseRadius: Double = 50000
+        let zoomFactor = pow(2.0, Double(max(0, 10 - zoom)))
+        let countFactor = min(2.0, 1.0 + Double(count) / 50.0)
+        return baseRadius * zoomFactor * countFactor
+    }
+
+    private func heatmapColor(for cell: HeatmapCell) -> Color {
+        switch cell.maxUrgency {
+        case 1: return .green
+        case 2: return .yellow
+        case 3: return .orange
+        case 4...5: return .red
+        default: return .blue
+        }
+    }
+
+    private func calculateZoom(from latDelta: Double) -> Int {
+        let zoom = Int(log2(360.0 / latDelta))
+        return max(1, min(20, zoom))
+    }
+
+    private func gridSizeForZoom(_ zoom: Int) -> Double {
+        switch zoom {
+        case 0...4: return 2.0   // Large grid for zoomed out
+        case 5...8: return 1.0   // Medium grid
+        default: return 0.5     // Small grid for zoomed in
+        }
+    }
+}
+
+// MARK: - Feed Compose Button
+
+struct FeedComposeButton: View {
+    @EnvironmentObject var authService: AuthService
+    @State private var showComposeSheet = false
+    @State private var showLockedAlert = false
+
+    private var canPost: Bool {
+        guard let user = authService.currentUser else { return false }
+        return user.trustScore >= 25
+    }
+
+    private var trustNeeded: Int {
+        guard let user = authService.currentUser else { return 25 }
+        return max(0, 25 - user.trustScore)
+    }
+
+    var body: some View {
+        Button(action: {
+            if canPost {
+                showComposeSheet = true
+            } else {
+                showLockedAlert = true
+            }
+        }) {
+            Image(systemName: canPost ? "square.and.pencil" : "lock.fill")
+                .foregroundColor(canPost ? .orange : .gray)
+        }
+        .sheet(isPresented: $showComposeSheet) {
+            ComposePostView()
+        }
+        .alert("Posting Locked", isPresented: $showLockedAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You need a trust score of 25 to create posts. Get \(trustNeeded) more point\(trustNeeded == 1 ? "" : "s") by receiving vouches from trusted members.")
+        }
+    }
+}
+
+// MARK: - Legacy Feed View (kept for reference)
 
 struct FeedView: View {
     @EnvironmentObject var authService: AuthService
@@ -1796,6 +2098,62 @@ struct EventDetailView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    // Event Chat section
+                    if let channelId = currentEvent.channelId {
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Event Chat")
+                                .font(.headline)
+
+                            if currentEvent.isChannelMember == true || isOrganizer {
+                                NavigationLink {
+                                    ConversationView(channelId: channelId)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                                            .font(.title2)
+                                            .foregroundColor(.white)
+                                            .frame(width: 44, height: 44)
+                                            .background(Color.orange)
+                                            .cornerRadius(10)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Open Chat")
+                                                .font(.subheadline)
+                                                .fontWeight(.medium)
+                                            Text("Chat with other attendees")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.right")
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding()
+                                    .background(Color(UIColor.secondarySystemBackground))
+                                    .cornerRadius(12)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                VStack(spacing: 8) {
+                                    Image(systemName: "lock.fill")
+                                        .font(.title2)
+                                        .foregroundColor(.secondary)
+                                    Text("RSVP to join the event chat")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .cornerRadius(12)
+                            }
+                        }
+                    }
                 }
                 .padding()
             }
@@ -2197,9 +2555,18 @@ struct SettingsView: View {
     @EnvironmentObject var authService: AuthService
     @State private var showPanicConfirmation = false
     @State private var showRecoveryKey = false
+    @State private var navigationPath = NavigationPath()
+
+    enum SettingsDestination: Hashable {
+        case invites
+        case vouches
+        case topics
+        case locations
+        case quietHours
+    }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             List {
                 Section("Account") {
                     if let user = authService.currentUser {
@@ -2209,9 +2576,7 @@ struct SettingsView: View {
                 }
 
                 Section("Community") {
-                    NavigationLink {
-                        InvitesView()
-                    } label: {
+                    NavigationLink(value: SettingsDestination.invites) {
                         HStack {
                             Image(systemName: "envelope.badge.person.crop")
                                 .foregroundColor(.orange)
@@ -2229,9 +2594,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    NavigationLink {
-                        Text("Vouching coming soon...")
-                    } label: {
+                    NavigationLink(value: SettingsDestination.vouches) {
                         HStack {
                             Image(systemName: "person.badge.shield.checkmark")
                                 .foregroundColor(.orange)
@@ -2241,17 +2604,17 @@ struct SettingsView: View {
                 }
 
                 Section("Subscriptions") {
-                    NavigationLink("Topics") {
-                        Text("Topic subscriptions")
+                    NavigationLink(value: SettingsDestination.topics) {
+                        Text("Topics")
                     }
-                    NavigationLink("Locations") {
-                        Text("Location subscriptions")
+                    NavigationLink(value: SettingsDestination.locations) {
+                        Text("Locations")
                     }
                 }
 
                 Section("Notifications") {
-                    NavigationLink("Quiet Hours") {
-                        Text("Quiet hours settings")
+                    NavigationLink(value: SettingsDestination.quietHours) {
+                        Text("Quiet Hours")
                     }
                 }
 
@@ -2278,6 +2641,24 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .navigationDestination(for: SettingsDestination.self) { destination in
+                switch destination {
+                case .invites:
+                    InvitesView()
+                case .vouches:
+                    Text("Vouching coming soon...")
+                        .navigationTitle("Vouches")
+                case .topics:
+                    Text("Topic subscriptions")
+                        .navigationTitle("Topics")
+                case .locations:
+                    Text("Location subscriptions")
+                        .navigationTitle("Locations")
+                case .quietHours:
+                    Text("Quiet hours settings")
+                        .navigationTitle("Quiet Hours")
+                }
+            }
             .alert("Panic Wipe", isPresented: $showPanicConfirmation) {
                 Button("Cancel", role: .cancel) {}
                 Button("Wipe Everything", role: .destructive) {

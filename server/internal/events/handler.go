@@ -205,6 +205,8 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	eventID := uuid.New().String()
+	channelID := uuid.New().String()
+	now := time.Now().UTC()
 
 	startsAt := time.Unix(req.StartsAt, 0)
 	var endsAt *time.Time
@@ -237,19 +239,57 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 
 	locationSQL := "POINT(" + strconv.FormatFloat(req.Longitude, 'f', 6, 64) + " " + strconv.FormatFloat(req.Latitude, 'f', 6, 64) + ")"
 
-	_, err := h.db.Pool().Exec(ctx, `
+	// Start transaction
+	tx, err := h.db.Pool().Begin(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// Create the event
+	_, err = tx.Exec(ctx, `
 		INSERT INTO events (id, organizer_id, title, description, event_type, location, location_name,
-		                    location_area, location_visibility, location_reveal_at, starts_at, ends_at)
-		VALUES ($1, $2, $3, $4, $5, ST_GeogFromText($6), $7, $8, $9, $10, $11, $12)
+		                    location_area, location_visibility, location_reveal_at, starts_at, ends_at, channel_id)
+		VALUES ($1, $2, $3, $4, $5, ST_GeogFromText($6), $7, $8, $9, $10, $11, $12, $13)
 	`, eventID, userID, req.Title, req.Description, req.EventType, locationSQL,
-		req.LocationName, req.LocationArea, visibility, revealAt, startsAt, endsAt)
+		req.LocationName, req.LocationArea, visibility, revealAt, startsAt, endsAt, channelID)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create event"})
 		return
 	}
 
-	// Add topic associations
+	// Create the event channel
+	channelName := "Event: " + req.Title
+	_, err = tx.Exec(ctx, `
+		INSERT INTO channels (id, name, description, type, event_id, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, 'event', $4, $5, $6, $6)
+	`, channelID, channelName, req.Description, eventID, userID, now)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create event channel"})
+		return
+	}
+
+	// Add organizer as channel admin
+	_, err = tx.Exec(ctx, `
+		INSERT INTO channel_members (channel_id, user_id, role, joined_at)
+		VALUES ($1, $2, 'admin', $3)
+	`, channelID, userID, now)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add organizer to channel"})
+		return
+	}
+
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit transaction"})
+		return
+	}
+
+	// Add topic associations (non-critical, after commit)
 	for _, topicID := range req.TopicIDs {
 		h.db.Pool().Exec(ctx, `
 			INSERT INTO event_topics (event_id, topic_id) VALUES ($1, $2)
@@ -258,8 +298,9 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"id":      eventID,
-		"message": "event created",
+		"id":         eventID,
+		"channel_id": channelID,
+		"message":    "event created",
 	})
 }
 
@@ -270,7 +311,7 @@ func (h *Handler) GetEvent(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	var id, organizerID, title, eventType, locationVisibility string
-	var description, locationName, locationArea *string
+	var description, locationName, locationArea, channelID *string
 	var locationRevealAt *time.Time
 	var lat, lon float64
 	var startsAt time.Time
@@ -281,12 +322,12 @@ func (h *Handler) GetEvent(c *gin.Context) {
 		SELECT e.id, e.organizer_id, e.title, e.description, e.event_type,
 			   ST_Y(e.location::geometry) as lat, ST_X(e.location::geometry) as lon,
 			   e.location_name, e.location_area, e.location_visibility, e.location_reveal_at,
-			   e.starts_at, e.ends_at, e.is_cancelled
+			   e.starts_at, e.ends_at, e.is_cancelled, e.channel_id
 		FROM events e
 		WHERE e.id = $1
 	`, eventID).Scan(&id, &organizerID, &title, &description, &eventType, &lat, &lon,
 		&locationName, &locationArea, &locationVisibility, &locationRevealAt,
-		&startsAt, &endsAt, &isCancelled)
+		&startsAt, &endsAt, &isCancelled, &channelID)
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
@@ -312,6 +353,18 @@ func (h *Handler) GetEvent(c *gin.Context) {
 		"is_cancelled":        isCancelled,
 		"rsvp_count":          rsvpCount,
 		"location_visibility": locationVisibility,
+	}
+
+	// Include channel_id if available
+	if channelID != nil {
+		event["channel_id"] = *channelID
+
+		// Check if user is a member of the event channel
+		var isChannelMember bool
+		h.db.Pool().QueryRow(ctx, `
+			SELECT EXISTS(SELECT 1 FROM channel_members WHERE channel_id = $1 AND user_id = $2)
+		`, *channelID, userID).Scan(&isChannelMember)
+		event["is_channel_member"] = isChannelMember
 	}
 
 	// Conditionally include exact location
@@ -451,18 +504,18 @@ func (h *Handler) RSVP(c *gin.Context) {
 		return
 	}
 
-	// Verify event exists and get visibility info
+	// Verify event exists and get visibility info + channel_id
 	var exists bool
 	var locationVisibility string
 	var locationRevealAt *time.Time
 	var lat, lon float64
-	var locationName *string
+	var locationName, channelID *string
 
 	err := h.db.Pool().QueryRow(ctx, `
 		SELECT true, location_visibility, location_reveal_at,
-		       ST_Y(location::geometry) as lat, ST_X(location::geometry) as lon, location_name
+		       ST_Y(location::geometry) as lat, ST_X(location::geometry) as lon, location_name, channel_id
 		FROM events WHERE id = $1
-	`, eventID).Scan(&exists, &locationVisibility, &locationRevealAt, &lat, &lon, &locationName)
+	`, eventID).Scan(&exists, &locationVisibility, &locationRevealAt, &lat, &lon, &locationName, &channelID)
 
 	if err != nil || !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
@@ -481,6 +534,19 @@ func (h *Handler) RSVP(c *gin.Context) {
 	}
 
 	response := gin.H{"message": "RSVP recorded", "status": req.Status}
+
+	// If this is a going/interested RSVP, add user to the event channel
+	if (req.Status == "going" || req.Status == "interested") && channelID != nil {
+		// Add user to channel (ignore if already member)
+		_, _ = h.db.Pool().Exec(ctx, `
+			INSERT INTO channel_members (channel_id, user_id, role, joined_at)
+			VALUES ($1, $2, 'member', NOW())
+			ON CONFLICT (channel_id, user_id) DO NOTHING
+		`, *channelID, userID)
+
+		response["channel_id"] = *channelID
+		response["joined_channel"] = true
+	}
 
 	// If this is a going/interested RSVP for an rsvp-only event, reveal the location
 	if (req.Status == "going" || req.Status == "interested") && locationVisibility == "rsvp" {

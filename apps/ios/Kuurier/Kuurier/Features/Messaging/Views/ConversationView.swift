@@ -3,7 +3,8 @@ import Combine
 
 /// Main chat view displaying messages in a conversation
 struct ConversationView: View {
-    let channel: Channel
+    let channel: Channel?
+    let channelId: String
 
     @StateObject private var viewModel: ConversationViewModel
     @StateObject private var wsService = WebSocketService.shared
@@ -14,7 +15,15 @@ struct ConversationView: View {
 
     init(channel: Channel) {
         self.channel = channel
+        self.channelId = channel.id
         _viewModel = StateObject(wrappedValue: ConversationViewModel(channel: channel))
+    }
+
+    /// Initialize with just a channel ID (for event channels)
+    init(channelId: String) {
+        self.channel = nil
+        self.channelId = channelId
+        _viewModel = StateObject(wrappedValue: ConversationViewModel(channelId: channelId))
     }
 
     var body: some View {
@@ -48,7 +57,7 @@ struct ConversationView: View {
                         }
 
                         // Typing indicator
-                        if !wsService.typingUsersIn(channelId: channel.id).isEmpty {
+                        if !wsService.typingUsersIn(channelId: channelId).isEmpty {
                             TypingIndicatorView()
                                 .padding(.horizontal)
                         }
@@ -80,7 +89,7 @@ struct ConversationView: View {
                 isFocused: $isInputFocused,
                 onSend: {
                     Task {
-                        wsService.stopTyping(in: channel.id)
+                        wsService.stopTyping(in: channelId)
                         await viewModel.sendMessage(messageText)
                         messageText = ""
                     }
@@ -90,16 +99,17 @@ struct ConversationView: View {
                 handleTyping(newValue)
             }
         }
-        .navigationTitle(channel.displayName)
+        .navigationTitle(viewModel.channel?.displayName ?? "Chat")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
                     HStack(spacing: 4) {
-                        Text(channel.displayName)
+                        Text(viewModel.channel?.displayName ?? "Chat")
                             .font(.headline)
                         // Online indicator for DMs
-                        if channel.type == .dm,
+                        if let channel = viewModel.channel,
+                           channel.type == .dm,
                            let otherUserId = channel.otherUserId,
                            wsService.isOnline(userId: otherUserId) {
                             Circle()
@@ -107,7 +117,7 @@ struct ConversationView: View {
                                 .frame(width: 8, height: 8)
                         }
                     }
-                    if channel.type != .dm {
+                    if let channel = viewModel.channel, channel.type != .dm {
                         Text("\(channel.memberCount) members")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -116,12 +126,13 @@ struct ConversationView: View {
             }
         }
         .task {
+            await viewModel.loadChannelIfNeeded()
             await viewModel.loadMessages()
-            viewModel.setupWebSocket(for: channel.id)
+            viewModel.setupWebSocket(for: channelId)
         }
         .onDisappear {
-            wsService.stopTyping(in: channel.id)
-            wsService.unsubscribe(from: channel.id)
+            wsService.stopTyping(in: channelId)
+            wsService.unsubscribe(from: channelId)
         }
         .refreshable {
             await viewModel.loadMessages()
@@ -134,14 +145,14 @@ struct ConversationView: View {
 
         if !text.isEmpty {
             // Send typing start
-            wsService.startTyping(in: channel.id)
+            wsService.startTyping(in: channelId)
 
             // Set timer to stop typing after 3 seconds of no input
             typingTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
-                wsService.stopTyping(in: channel.id)
+                self.wsService.stopTyping(in: self.channelId)
             }
         } else {
-            wsService.stopTyping(in: channel.id)
+            wsService.stopTyping(in: channelId)
         }
     }
 }
@@ -153,8 +164,9 @@ final class ConversationViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var hasMoreMessages = true
+    @Published var channel: Channel?
 
-    private let channel: Channel
+    private let channelId: String
     private let api = APIClient.shared
     private let signalService = SignalService.shared
     private let senderKeyService = SenderKeyService.shared
@@ -162,6 +174,25 @@ final class ConversationViewModel: ObservableObject {
 
     init(channel: Channel) {
         self.channel = channel
+        self.channelId = channel.id
+    }
+
+    /// Initialize with just a channel ID (for event channels)
+    init(channelId: String) {
+        self.channelId = channelId
+        self.channel = nil
+    }
+
+    /// Fetches channel details if not already loaded
+    func loadChannelIfNeeded() async {
+        guard channel == nil else { return }
+
+        do {
+            let fetchedChannel: Channel = try await api.get("/channels/\(channelId)")
+            self.channel = fetchedChannel
+        } catch {
+            self.error = "Failed to load channel"
+        }
     }
 
     /// Sets up WebSocket for real-time updates
@@ -212,11 +243,11 @@ final class ConversationViewModel: ObservableObject {
 
         do {
             // For group channels, fetch sender keys before loading messages
-            if channel.type != .dm {
-                try await senderKeyService.fetchSenderKeys(for: channel.id)
+            if channel?.type != .dm {
+                try await senderKeyService.fetchSenderKeys(for: channelId)
             }
 
-            let response: MessagesResponse = try await api.get("/messages/\(channel.id)")
+            let response: MessagesResponse = try await api.get("/messages/\(channelId)")
             // Messages come newest first, reverse for display
             var decryptedMessages = response.messages.reversed().map { $0 }
 
@@ -240,7 +271,7 @@ final class ConversationViewModel: ObservableObject {
         do {
             let beforeDate = ISO8601DateFormatter().string(from: oldestMessage.createdAt)
             let response: MessagesResponse = try await api.get(
-                "/messages/\(channel.id)",
+                "/messages/\(channelId)",
                 queryItems: [URLQueryItem(name: "before", value: beforeDate)]
             )
 
@@ -265,7 +296,7 @@ final class ConversationViewModel: ObservableObject {
 
             // Send to server
             let request = SendMessageRequest(
-                channelId: channel.id,
+                channelId: channelId,
                 ciphertext: ciphertext,
                 messageType: "text",
                 replyToId: nil
@@ -279,7 +310,7 @@ final class ConversationViewModel: ObservableObject {
             messages.append(decryptedMessage)
 
             // Mark channel as read
-            await MessagingService.shared.markChannelRead(channel.id)
+            await MessagingService.shared.markChannelRead(channelId)
         } catch {
             self.error = "Failed to send message: \(error.localizedDescription)"
         }
@@ -290,19 +321,19 @@ final class ConversationViewModel: ObservableObject {
             throw MessagingError.encryptionFailed
         }
 
-        if channel.type == .dm, let otherUserId = channel.otherUserId {
+        if let channel = channel, channel.type == .dm, let otherUserId = channel.otherUserId {
             // DM: Use Signal Protocol 1:1 encryption
             return try await signalService.encrypt(contentData, for: otherUserId)
         } else {
             // Group: Use Sender Keys for efficient group encryption
-            let groupCiphertext = try await senderKeyService.encryptForGroup(contentData, channelId: channel.id)
+            let groupCiphertext = try await senderKeyService.encryptForGroup(contentData, channelId: channelId)
             // Encode the GroupCiphertext as JSON for transport
             return try JSONEncoder().encode(groupCiphertext)
         }
     }
 
     private func decryptMessage(_ message: Message) async -> String? {
-        if channel.type == .dm {
+        if channel?.type == .dm {
             // DM: Use Signal Protocol decryption
             if let decrypted = try? await signalService.decrypt(message.ciphertext, from: message.senderId) {
                 return String(data: decrypted, encoding: .utf8)
@@ -314,7 +345,7 @@ final class ConversationViewModel: ObservableObject {
                 let decrypted = try await senderKeyService.decryptFromGroup(
                     groupCiphertext,
                     from: message.senderId,
-                    channelId: channel.id
+                    channelId: channelId
                 )
                 return String(data: decrypted, encoding: .utf8)
             } catch {
