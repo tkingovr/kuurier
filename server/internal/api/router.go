@@ -16,10 +16,12 @@ import (
 	"github.com/kuurier/server/internal/messaging"
 	"github.com/kuurier/server/internal/middleware"
 	"github.com/kuurier/server/internal/storage"
+	"github.com/kuurier/server/internal/websocket"
 )
 
 // NewRouter creates and configures the API router
-func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, minio *storage.MinIO) *gin.Engine {
+// Returns the router and the WebSocket hub (hub must be Run() in a goroutine)
+func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, minio *storage.MinIO) (*gin.Engine, *websocket.Hub) {
 	// Set Gin mode based on environment
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -36,6 +38,10 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 
 	// Health check (public)
 	router.GET("/health", healthCheck(db, redis))
+
+	// Initialize WebSocket hub
+	wsHub := websocket.NewHub(redis)
+	wsHandler := websocket.NewHandler(cfg, wsHub)
 
 	// Initialize handlers
 	authHandler := auth.NewHandler(cfg, db)
@@ -200,10 +206,13 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				alertRoutes.POST("/:id/respond", alertsHandler.RespondToAlert)
 				alertRoutes.GET("/nearby", alertsHandler.GetNearbyAlerts)
 			}
+
+			// WebSocket endpoint for real-time messaging
+			protected.GET("/ws", wsHandler.HandleConnection)
 		}
 	}
 
-	return router
+	return router, wsHub
 }
 
 func healthCheck(db *storage.Postgres, redis *storage.Redis) gin.HandlerFunc {

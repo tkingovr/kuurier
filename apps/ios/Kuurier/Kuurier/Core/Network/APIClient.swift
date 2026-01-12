@@ -6,7 +6,7 @@ final class APIClient {
     static let shared = APIClient()
 
     private let session: URLSession
-    private let baseURL: URL
+    let baseURL: URL
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 

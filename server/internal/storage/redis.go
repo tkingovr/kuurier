@@ -72,3 +72,8 @@ func (r *Redis) Publish(ctx context.Context, channel string, message interface{}
 func (r *Redis) Subscribe(ctx context.Context, channels ...string) *redis.PubSub {
 	return r.client.Subscribe(ctx, channels...)
 }
+
+// PSubscribe creates a pattern subscription to channels
+func (r *Redis) PSubscribe(ctx context.Context, patterns ...string) *redis.PubSub {
+	return r.client.PSubscribe(ctx, patterns...)
+}

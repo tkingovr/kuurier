@@ -6,8 +6,10 @@ struct ConversationView: View {
     let channel: Channel
 
     @StateObject private var viewModel: ConversationViewModel
+    @StateObject private var wsService = WebSocketService.shared
     @State private var messageText = ""
     @State private var isLoadingMore = false
+    @State private var typingTimer: Timer?
     @FocusState private var isInputFocused: Bool
 
     init(channel: Channel) {
@@ -44,6 +46,12 @@ struct ConversationView: View {
                             )
                             .id(message.id)
                         }
+
+                        // Typing indicator
+                        if !wsService.typingUsersIn(channelId: channel.id).isEmpty {
+                            TypingIndicatorView()
+                                .padding(.horizontal)
+                        }
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -72,19 +80,33 @@ struct ConversationView: View {
                 isFocused: $isInputFocused,
                 onSend: {
                     Task {
+                        wsService.stopTyping(in: channel.id)
                         await viewModel.sendMessage(messageText)
                         messageText = ""
                     }
                 }
             )
+            .onChange(of: messageText) { _, newValue in
+                handleTyping(newValue)
+            }
         }
         .navigationTitle(channel.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
-                    Text(channel.displayName)
-                        .font(.headline)
+                    HStack(spacing: 4) {
+                        Text(channel.displayName)
+                            .font(.headline)
+                        // Online indicator for DMs
+                        if channel.type == .dm,
+                           let otherUserId = channel.otherUserId,
+                           wsService.isOnline(userId: otherUserId) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 8, height: 8)
+                        }
+                    }
                     if channel.type != .dm {
                         Text("\(channel.memberCount) members")
                             .font(.caption)
@@ -95,9 +117,31 @@ struct ConversationView: View {
         }
         .task {
             await viewModel.loadMessages()
+            viewModel.setupWebSocket(for: channel.id)
+        }
+        .onDisappear {
+            wsService.stopTyping(in: channel.id)
+            wsService.unsubscribe(from: channel.id)
         }
         .refreshable {
             await viewModel.loadMessages()
+        }
+    }
+
+    private func handleTyping(_ text: String) {
+        // Cancel previous timer
+        typingTimer?.invalidate()
+
+        if !text.isEmpty {
+            // Send typing start
+            wsService.startTyping(in: channel.id)
+
+            // Set timer to stop typing after 3 seconds of no input
+            typingTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
+                wsService.stopTyping(in: channel.id)
+            }
+        } else {
+            wsService.stopTyping(in: channel.id)
         }
     }
 }
@@ -113,9 +157,52 @@ final class ConversationViewModel: ObservableObject {
     private let channel: Channel
     private let api = APIClient.shared
     private let signalService = SignalService.shared
+    private let wsService = WebSocketService.shared
 
     init(channel: Channel) {
         self.channel = channel
+    }
+
+    /// Sets up WebSocket for real-time updates
+    func setupWebSocket(for channelId: String) {
+        // Connect if not connected
+        if !wsService.isConnected {
+            wsService.connect()
+        }
+
+        // Subscribe to channel
+        wsService.subscribe(to: channelId)
+
+        // Handle incoming messages
+        wsService.onMessageReceived = { [weak self] wsMessage in
+            guard let self = self,
+                  wsMessage.channelId == channelId else { return }
+
+            Task { @MainActor in
+                await self.handleIncomingMessage(wsMessage)
+            }
+        }
+    }
+
+    /// Handles incoming WebSocket messages
+    private func handleIncomingMessage(_ wsMessage: WebSocketMessage) async {
+        guard wsMessage.type == "message.new",
+              let payload = wsMessage.payload else { return }
+
+        // Decode the message from payload
+        guard let message = try? JSONDecoder().decode(Message.self, from: payload) else {
+            return
+        }
+
+        // Don't add if it's our own message (already added optimistically)
+        if message.senderId == SecureStorage.shared.userID {
+            return
+        }
+
+        // Decrypt and add to messages
+        var decryptedMessage = message
+        decryptedMessage.decryptedContent = await decryptMessage(message)
+        messages.append(decryptedMessage)
     }
 
     func loadMessages() async {

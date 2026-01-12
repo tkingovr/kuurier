@@ -29,6 +29,7 @@
 		52E7DB342F118B0000CCA28A /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB332F118B0000CCA28A /* MessageBubbleView.swift */; };
 		52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */; };
 		52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB372F118B0000CCA28A /* MessagesTabView.swift */; };
+		52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB412F118C0000CCA28A /* WebSocketService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -55,6 +56,7 @@
 		52E7DB332F118B0000CCA28A /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
 		52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeMessageView.swift; sourceTree = "<group>"; };
 		52E7DB372F118B0000CCA28A /* MessagesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesTabView.swift; sourceTree = "<group>"; };
+		52E7DB412F118C0000CCA28A /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -216,6 +218,7 @@
 			isa = PBXGroup;
 			children = (
 				52E7DB232F118A0000CCA28A /* MessagingService.swift */,
+				52E7DB412F118C0000CCA28A /* WebSocketService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -358,6 +361,7 @@
 				52E7DB342F118B0000CCA28A /* MessageBubbleView.swift in Sources */,
 				52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */,
 				52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */,
+				52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

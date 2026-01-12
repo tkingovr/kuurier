@@ -235,13 +235,25 @@ enum WebSocketEventType: String, Codable {
 /// WebSocket message envelope
 struct WebSocketMessage: Codable {
     let type: String
-    let channelId: String?
-    let payload: Data? // JSON-encoded payload
+    var channelId: String?
+    var userId: String?
+    var payload: Data? // JSON-encoded payload
+    var timestamp: Date?
 
     enum CodingKeys: String, CodingKey {
         case type
         case channelId = "channel_id"
+        case userId = "user_id"
         case payload
+        case timestamp
+    }
+
+    init(type: String, channelId: String? = nil, userId: String? = nil, payload: Data? = nil, timestamp: Date? = nil) {
+        self.type = type
+        self.channelId = channelId
+        self.userId = userId
+        self.payload = payload
+        self.timestamp = timestamp
     }
 }
 

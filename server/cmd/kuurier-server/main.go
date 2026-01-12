@@ -42,8 +42,12 @@ func main() {
 		minio = nil
 	}
 
-	// Create router
-	router := api.NewRouter(cfg, db, redis, minio)
+	// Create router and WebSocket hub
+	router, wsHub := api.NewRouter(cfg, db, redis, minio)
+
+	// Start WebSocket hub
+	go wsHub.Run()
+	defer wsHub.Stop()
 
 	// Create server
 	srv := &http.Server{
@@ -56,7 +60,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("Kuurier server starting on port %s", cfg.Port)
+		log.Printf("Kuurier server starting on port %s (WebSocket enabled)", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
