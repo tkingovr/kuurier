@@ -32,6 +32,8 @@
 		52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB412F118C0000CCA28A /* WebSocketService.swift */; };
 		52E7DB522F119A0000CCA28A /* SenderKeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB502F119A0000CCA28A /* SenderKeyService.swift */; };
 		52E7DB612F11AA0000CCA28A /* AlertsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB602F11AA0000CCA28A /* AlertsService.swift */; };
+		52E7DB702F11BA0000CCA28A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB712F11BA0000CCA28A /* AppDelegate.swift */; };
+		52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -61,6 +63,9 @@
 		52E7DB412F118C0000CCA28A /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
 		52E7DB502F119A0000CCA28A /* SenderKeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenderKeyService.swift; sourceTree = "<group>"; };
 		52E7DB602F11AA0000CCA28A /* AlertsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsService.swift; sourceTree = "<group>"; };
+		52E7DB712F11BA0000CCA28A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
+		52E7DB752F11BA0000CCA28A /* Kuurier.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Kuurier.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -93,6 +98,7 @@
 		52E7DAE52F1151EC00CCA28A /* App */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DB712F11BA0000CCA28A /* AppDelegate.swift */,
 				52E7DAE32F1151EC00CCA28A /* ContentView.swift */,
 				52E7DAE42F1151EC00CCA28A /* KuurierApp.swift */,
 			);
@@ -193,6 +199,14 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		52E7DB742F11BA0000CCA28A /* Push */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */,
+			);
+			path = Push;
+			sourceTree = "<group>";
+		};
 		52E7DB042F1151EC00CCA28A /* Invites */ = {
 			isa = PBXGroup;
 			children = (
@@ -250,6 +264,7 @@
 				52E7DB042F1151EC00CCA28A /* Invites */,
 				52E7DAF42F1151EC00CCA28A /* Map */,
 				52E7DB242F118A0000CCA28A /* Messaging */,
+				52E7DB742F11BA0000CCA28A /* Push */,
 				52E7DAF52F1151EC00CCA28A /* Settings */,
 			);
 			path = Features;
@@ -270,6 +285,7 @@
 				52E7DAF62F1151EC00CCA28A /* Features */,
 				52E7DAF72F1151EC00CCA28A /* Resources */,
 				52E7DAF82F1151EC00CCA28A /* Assets.xcassets */,
+				52E7DB752F11BA0000CCA28A /* Kuurier.entitlements */,
 			);
 			path = Kuurier;
 			sourceTree = "<group>";
@@ -370,6 +386,8 @@
 				52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */,
 				52E7DB522F119A0000CCA28A /* SenderKeyService.swift in Sources */,
 				52E7DB612F11AA0000CCA28A /* AlertsService.swift in Sources */,
+				52E7DB702F11BA0000CCA28A /* AppDelegate.swift in Sources */,
+				52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -502,6 +520,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Kuurier/Kuurier.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U7QJ5RPT9D;
@@ -535,6 +554,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Kuurier/Kuurier.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U7QJ5RPT9D;

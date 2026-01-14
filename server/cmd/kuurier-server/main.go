@@ -42,8 +42,22 @@ func main() {
 		minio = nil
 	}
 
+	// Initialize APNs (push notifications)
+	apnsCfg := storage.APNsConfig{
+		KeyPath:    cfg.APNsKeyPath,
+		KeyID:      cfg.APNsKeyID,
+		TeamID:     cfg.APNsTeamID,
+		BundleID:   cfg.APNsBundleID,
+		Production: cfg.APNsProduction,
+	}
+	apns, err := storage.NewAPNs(apnsCfg)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize APNs: %v (push notifications disabled)", err)
+		apns = nil
+	}
+
 	// Create router and WebSocket hub
-	router, wsHub := api.NewRouter(cfg, db, redis, minio)
+	router, wsHub := api.NewRouter(cfg, db, redis, minio, apns)
 
 	// Start WebSocket hub
 	go wsHub.Run()

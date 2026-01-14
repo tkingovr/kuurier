@@ -15,13 +15,14 @@ import (
 	"github.com/kuurier/server/internal/media"
 	"github.com/kuurier/server/internal/messaging"
 	"github.com/kuurier/server/internal/middleware"
+	"github.com/kuurier/server/internal/push"
 	"github.com/kuurier/server/internal/storage"
 	"github.com/kuurier/server/internal/websocket"
 )
 
 // NewRouter creates and configures the API router
 // Returns the router and the WebSocket hub (hub must be Run() in a goroutine)
-func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, minio *storage.MinIO) (*gin.Engine, *websocket.Hub) {
+func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, minio *storage.MinIO, apns *storage.APNs) (*gin.Engine, *websocket.Hub) {
 	// Set Gin mode based on environment
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -43,6 +44,10 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	wsHub := websocket.NewHub(redis)
 	wsHandler := websocket.NewHandler(cfg, wsHub)
 
+	// Initialize push notification service
+	pushService := push.NewService(cfg, db, redis, apns)
+	pushHandler := push.NewHandler(cfg, db, pushService)
+
 	// Initialize handlers
 	authHandler := auth.NewHandler(cfg, db)
 	invitesHandler := invites.NewHandler(cfg, db)
@@ -55,7 +60,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	feedHandler := feed.NewHandler(cfg, db, redis)
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
-	alertsHandler := alerts.NewHandler(cfg, db, redis)
+	alertsHandler := alerts.NewHandler(cfg, db, redis, pushService)
 
 	// Media handler (optional - requires MinIO)
 	var mediaHandler *media.Handler
@@ -235,6 +240,14 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				alertRoutes.PUT("/:id/status", alertsHandler.UpdateAlertStatus)
 				alertRoutes.POST("/:id/respond", alertsHandler.RespondToAlert)
 				alertRoutes.GET("/nearby", alertsHandler.GetNearbyAlerts)
+			}
+
+			// Push notification routes
+			pushRoutes := protected.Group("/push")
+			{
+				pushRoutes.POST("/token", pushHandler.RegisterToken)
+				pushRoutes.DELETE("/token", pushHandler.UnregisterToken)
+				pushRoutes.GET("/tokens", pushHandler.GetTokens)
 			}
 
 			// WebSocket endpoint for real-time messaging

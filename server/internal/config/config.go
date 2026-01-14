@@ -33,9 +33,11 @@ type Config struct {
 	EncryptionKey []byte
 
 	// Push notifications
-	APNsKeyPath string
-	APNsKeyID   string
-	APNsTeamID  string
+	APNsKeyPath    string
+	APNsKeyID      string
+	APNsTeamID     string
+	APNsBundleID   string
+	APNsProduction bool
 }
 
 // Load reads configuration from environment variables
@@ -54,6 +56,8 @@ func Load() (*Config, error) {
 		APNsKeyPath:    getEnv("APNS_KEY_PATH", ""),
 		APNsKeyID:      getEnv("APNS_KEY_ID", ""),
 		APNsTeamID:     getEnv("APNS_TEAM_ID", ""),
+		APNsBundleID:   getEnv("APNS_BUNDLE_ID", "com.kuurier.app"),
+		APNsProduction: getEnv("APNS_PRODUCTION", "false") == "true",
 	}
 
 	// JWT secret is required in production
