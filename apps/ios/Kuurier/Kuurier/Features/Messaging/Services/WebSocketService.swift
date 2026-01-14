@@ -1,5 +1,36 @@
 import Foundation
 import Combine
+import Network
+import UIKit
+
+/// Connection state for WebSocket
+enum WebSocketConnectionState: Equatable, Sendable {
+    case disconnected
+    case connecting
+    case connected
+    case reconnecting(attempt: Int)
+    case failed(reason: String)
+}
+
+// Make comparison nonisolated for use in background queues
+extension WebSocketConnectionState {
+    nonisolated static func == (lhs: WebSocketConnectionState, rhs: WebSocketConnectionState) -> Bool {
+        switch (lhs, rhs) {
+        case (.disconnected, .disconnected):
+            return true
+        case (.connecting, .connecting):
+            return true
+        case (.connected, .connected):
+            return true
+        case (.reconnecting(let a), .reconnecting(let b)):
+            return a == b
+        case (.failed(let a), .failed(let b)):
+            return a == b
+        default:
+            return false
+        }
+    }
+}
 
 /// Service for managing WebSocket connections for real-time messaging
 final class WebSocketService: ObservableObject {
@@ -8,8 +39,13 @@ final class WebSocketService: ObservableObject {
 
     // MARK: - Published State
 
-    @Published var isConnected = false
+    @Published var connectionState: WebSocketConnectionState = .disconnected
     @Published var connectionError: String?
+
+    /// Convenience computed property
+    var isConnected: Bool {
+        connectionState == .connected
+    }
 
     // Typing indicators: channelId -> Set of userIds who are typing
     @Published var typingUsers: [String: Set<String>] = [:]
@@ -22,31 +58,139 @@ final class WebSocketService: ObservableObject {
     var onMessageReceived: ((WebSocketMessage) -> Void)?
     var onTypingUpdate: ((String, String, Bool) -> Void)? // channelId, userId, isTyping
     var onPresenceUpdate: ((String, Bool) -> Void)? // userId, isOnline
+    var onConnectionStateChanged: ((WebSocketConnectionState) -> Void)?
 
     // MARK: - Private Properties
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
     private var pingTimer: Timer?
-    private var reconnectTimer: Timer?
+    private var reconnectTask: Task<Void, Never>?
     private var reconnectAttempts = 0
-    private let maxReconnectAttempts = 5
+    private let maxReconnectAttempts = 10
+    private let baseReconnectDelay: TimeInterval = 1.0
+    private let maxReconnectDelay: TimeInterval = 60.0
     private var subscribedChannels: Set<String> = []
+    private var typingTimers: [String: Timer] = [:]
+    private var isManuallyDisconnected = false
 
-    private var typingTimers: [String: Timer] = [:] // Clear typing after timeout
+    // Network monitoring
+    private let networkMonitor = NWPathMonitor()
+    private let networkQueue = DispatchQueue(label: "com.kuurier.networkmonitor")
+    private var hasNetworkConnection = true
+    private var wasConnectedBeforeNetworkLoss = false
 
-    private init() {}
+    // App lifecycle
+    private var cancellables = Set<AnyCancellable>()
+
+    private init() {
+        setupNetworkMonitoring()
+        setupAppLifecycleObservers()
+    }
+
+    deinit {
+        networkMonitor.cancel()
+        cancellables.removeAll()
+    }
+
+    // MARK: - Network Monitoring
+
+    private func setupNetworkMonitoring() {
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                self?.handleNetworkChange(path)
+            }
+        }
+        networkMonitor.start(queue: networkQueue)
+    }
+
+    private func handleNetworkChange(_ path: NWPath) {
+        let wasConnected = hasNetworkConnection
+        hasNetworkConnection = path.status == .satisfied
+
+        print("Network: \(hasNetworkConnection ? "available" : "unavailable") (was: \(wasConnected))")
+
+        if !wasConnected && hasNetworkConnection {
+            // Network restored
+            if wasConnectedBeforeNetworkLoss && !isManuallyDisconnected {
+                print("Network restored - attempting reconnection")
+                reconnectAttempts = 0 // Reset attempts on network restore
+                connect()
+            }
+        } else if wasConnected && !hasNetworkConnection {
+            // Network lost
+            wasConnectedBeforeNetworkLoss = isConnected
+            if isConnected {
+                print("Network lost - connection will be restored when network returns")
+                updateConnectionState(.reconnecting(attempt: 0))
+            }
+        }
+    }
+
+    // MARK: - App Lifecycle
+
+    private func setupAppLifecycleObservers() {
+        NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in
+                self?.handleAppWillEnterForeground()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in
+                self?.handleAppDidEnterBackground()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)
+            .sink { [weak self] _ in
+                self?.disconnect()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func handleAppWillEnterForeground() {
+        print("App entering foreground")
+        if !isManuallyDisconnected && SecureStorage.shared.isLoggedIn {
+            if !isConnected {
+                reconnectAttempts = 0
+                connect()
+            }
+        }
+    }
+
+    private func handleAppDidEnterBackground() {
+        print("App entering background")
+        // Keep connection alive for a short time, iOS will handle cleanup
+        // For longer background support, would need background task
+    }
 
     // MARK: - Connection Management
 
     /// Connects to the WebSocket server
     func connect() {
-        guard !isConnected else { return }
-
-        guard let token = SecureStorage.shared.authToken else {
-            connectionError = "Not authenticated"
+        guard !isManuallyDisconnected else {
+            print("WebSocket: Manual disconnect active, not connecting")
             return
         }
+
+        guard connectionState != .connecting && connectionState != .connected else {
+            print("WebSocket: Already connecting or connected")
+            return
+        }
+
+        guard hasNetworkConnection else {
+            print("WebSocket: No network connection available")
+            updateConnectionState(.failed(reason: "No network connection"))
+            return
+        }
+
+        guard let token = SecureStorage.shared.authToken else {
+            updateConnectionState(.failed(reason: "Not authenticated"))
+            return
+        }
+
+        updateConnectionState(.connecting)
 
         let apiBaseURL = APIClient.shared.baseURL
 
@@ -56,7 +200,7 @@ final class WebSocketService: ObservableObject {
         components.path = "/api/v1/ws"
 
         guard let wsURL = components.url else {
-            connectionError = "Invalid WebSocket URL"
+            updateConnectionState(.failed(reason: "Invalid WebSocket URL"))
             return
         }
 
@@ -65,88 +209,151 @@ final class WebSocketService: ObservableObject {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30
 
-        // Create URLSession with delegate for SSL pinning
+        // Create URLSession
         let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
         urlSession = URLSession(configuration: config)
         webSocketTask = urlSession?.webSocketTask(with: request)
 
         webSocketTask?.resume()
-        isConnected = true
-        connectionError = nil
-        reconnectAttempts = 0
 
-        // Start receiving messages
+        // Start receiving messages - connection state updated on first successful receive
         receiveMessage()
 
         // Start ping timer
         startPingTimer()
 
-        // Resubscribe to channels
-        for channelId in subscribedChannels {
-            subscribe(to: channelId)
-        }
-
-        print("WebSocket connected")
+        print("WebSocket: Connection initiated to \(wsURL)")
     }
 
     /// Disconnects from the WebSocket server
     func disconnect() {
+        isManuallyDisconnected = true
+        performDisconnect()
+    }
+
+    /// Internal disconnect without setting manual flag
+    private func performDisconnect() {
         stopPingTimer()
-        reconnectTimer?.invalidate()
-        reconnectTimer = nil
+        cancelReconnect()
 
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
+        urlSession?.invalidateAndCancel()
         urlSession = nil
 
-        isConnected = false
         typingUsers.removeAll()
-        print("WebSocket disconnected")
+        updateConnectionState(.disconnected)
+        print("WebSocket: Disconnected")
     }
 
-    /// Reconnects after a delay with exponential backoff
+    /// Reconnects (for external use after manual disconnect)
+    func reconnect() {
+        isManuallyDisconnected = false
+        reconnectAttempts = 0
+        connect()
+    }
+
+    private func updateConnectionState(_ newState: WebSocketConnectionState) {
+        guard connectionState != newState else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.connectionState = newState
+            self?.onConnectionStateChanged?(newState)
+
+            // Update error message
+            if case .failed(let reason) = newState {
+                self?.connectionError = reason
+            } else {
+                self?.connectionError = nil
+            }
+        }
+    }
+
+    // MARK: - Reconnection with Exponential Backoff + Jitter
+
     private func scheduleReconnect() {
+        guard !isManuallyDisconnected else { return }
+        guard hasNetworkConnection else {
+            print("WebSocket: No network, will reconnect when network returns")
+            return
+        }
         guard reconnectAttempts < maxReconnectAttempts else {
-            connectionError = "Failed to reconnect after \(maxReconnectAttempts) attempts"
+            updateConnectionState(.failed(reason: "Failed to reconnect after \(maxReconnectAttempts) attempts"))
             return
         }
 
-        let delay = pow(2.0, Double(reconnectAttempts))
         reconnectAttempts += 1
+        updateConnectionState(.reconnecting(attempt: reconnectAttempts))
 
-        print("Scheduling reconnect in \(delay) seconds (attempt \(reconnectAttempts))")
+        // Exponential backoff with jitter
+        let exponentialDelay = min(baseReconnectDelay * pow(2.0, Double(reconnectAttempts - 1)), maxReconnectDelay)
+        let jitter = Double.random(in: 0...0.3) * exponentialDelay
+        let delay = exponentialDelay + jitter
 
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            self?.connect()
+        print("WebSocket: Scheduling reconnect in \(String(format: "%.1f", delay))s (attempt \(reconnectAttempts)/\(maxReconnectAttempts))")
+
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                self?.connect()
+            }
         }
+    }
+
+    private func cancelReconnect() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
     }
 
     // MARK: - Message Handling
 
     private func receiveMessage() {
         webSocketTask?.receive { [weak self] result in
+            guard let self = self else { return }
+
             switch result {
             case .success(let message):
+                // First successful message means we're connected
+                if self.connectionState != .connected {
+                    DispatchQueue.main.async {
+                        self.updateConnectionState(.connected)
+                        self.reconnectAttempts = 0
+
+                        // Resubscribe to channels after reconnection
+                        for channelId in self.subscribedChannels {
+                            self.subscribe(to: channelId)
+                        }
+                    }
+                }
+
                 switch message {
                 case .string(let text):
-                    self?.handleTextMessage(text)
+                    self.handleTextMessage(text)
                 case .data(let data):
                     if let text = String(data: data, encoding: .utf8) {
-                        self?.handleTextMessage(text)
+                        self.handleTextMessage(text)
                     }
                 @unknown default:
                     break
                 }
 
                 // Continue receiving
-                self?.receiveMessage()
+                self.receiveMessage()
 
             case .failure(let error):
-                print("WebSocket receive error: \(error)")
+                print("WebSocket: Receive error - \(error.localizedDescription)")
+
                 DispatchQueue.main.async {
-                    self?.isConnected = false
-                    self?.connectionError = error.localizedDescription
-                    self?.scheduleReconnect()
+                    // Don't reconnect if manually disconnected
+                    guard !self.isManuallyDisconnected else { return }
+
+                    self.performDisconnect()
+                    self.isManuallyDisconnected = false // Reset for auto-reconnect
+                    self.scheduleReconnect()
                 }
             }
         }
@@ -155,7 +362,7 @@ final class WebSocketService: ObservableObject {
     private func handleTextMessage(_ text: String) {
         guard let data = text.data(using: .utf8),
               let message = try? JSONDecoder().decode(WebSocketMessage.self, from: data) else {
-            print("Failed to decode WebSocket message: \(text)")
+            print("WebSocket: Failed to decode message: \(text.prefix(100))")
             return
         }
 
@@ -195,11 +402,11 @@ final class WebSocketService: ObservableObject {
         case "error":
             if let payload = message.payload,
                let error = try? JSONDecoder().decode(ErrorPayload.self, from: payload) {
-                print("WebSocket error: \(error.error)")
+                print("WebSocket: Server error - \(error.error)")
             }
 
         default:
-            print("Unknown WebSocket message type: \(message.type)")
+            print("WebSocket: Unknown message type - \(message.type)")
         }
     }
 
@@ -212,7 +419,6 @@ final class WebSocketService: ObservableObject {
         }
 
         if typing.typing {
-            // Add user to typing
             if typingUsers[channelId] == nil {
                 typingUsers[channelId] = []
             }
@@ -228,7 +434,6 @@ final class WebSocketService: ObservableObject {
                 }
             }
         } else {
-            // Remove user from typing
             typingUsers[channelId]?.remove(userId)
             if typingUsers[channelId]?.isEmpty == true {
                 typingUsers.removeValue(forKey: channelId)
@@ -247,19 +452,19 @@ final class WebSocketService: ObservableObject {
     /// Sends a WebSocket message
     func send(_ message: WebSocketMessage) {
         guard isConnected else {
-            print("Cannot send: WebSocket not connected")
+            print("WebSocket: Cannot send - not connected")
             return
         }
 
         guard let data = try? JSONEncoder().encode(message),
               let text = String(data: data, encoding: .utf8) else {
-            print("Failed to encode message")
+            print("WebSocket: Failed to encode message")
             return
         }
 
         webSocketTask?.send(.string(text)) { error in
             if let error = error {
-                print("WebSocket send error: \(error)")
+                print("WebSocket: Send error - \(error.localizedDescription)")
             }
         }
     }
@@ -267,6 +472,8 @@ final class WebSocketService: ObservableObject {
     /// Subscribes to a channel for real-time updates
     func subscribe(to channelId: String) {
         subscribedChannels.insert(channelId)
+
+        guard isConnected else { return }
 
         let message = WebSocketMessage(
             type: "subscribe",
@@ -281,6 +488,8 @@ final class WebSocketService: ObservableObject {
     /// Unsubscribes from a channel
     func unsubscribe(from channelId: String) {
         subscribedChannels.remove(channelId)
+
+        guard isConnected else { return }
 
         let message = WebSocketMessage(
             type: "unsubscribe",
@@ -333,6 +542,7 @@ final class WebSocketService: ObservableObject {
     // MARK: - Ping/Pong
 
     private func startPingTimer() {
+        stopPingTimer()
         pingTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.sendPing()
         }
@@ -344,6 +554,8 @@ final class WebSocketService: ObservableObject {
     }
 
     private func sendPing() {
+        guard isConnected else { return }
+
         let message = WebSocketMessage(
             type: "ping",
             channelId: nil,
@@ -356,24 +568,20 @@ final class WebSocketService: ObservableObject {
 
     // MARK: - Helpers
 
-    /// Returns whether a user is currently typing in a channel
     func isTyping(userId: String, in channelId: String) -> Bool {
         return typingUsers[channelId]?.contains(userId) ?? false
     }
 
-    /// Returns all users currently typing in a channel
     func typingUsersIn(channelId: String) -> [String] {
         return Array(typingUsers[channelId] ?? [])
     }
 
-    /// Returns whether a user is online
     func isOnline(userId: String) -> Bool {
         return onlineUsers.contains(userId)
     }
 }
 
 // MARK: - Helper Types
-// WebSocketMessage is defined in MessagingModels.swift
 
 private struct TypingPayload: Codable {
     let typing: Bool

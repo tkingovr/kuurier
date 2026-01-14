@@ -15,6 +15,15 @@ type Config struct {
 	// Database
 	DatabaseURL string
 
+	// Database Pool Settings
+	DBMaxConns          int32
+	DBMinConns          int32
+	DBMaxConnLifetime   int // minutes
+	DBMaxConnIdleTime   int // minutes
+	DBHealthCheckPeriod int // seconds
+	DBConnectTimeout    int // seconds
+	DBAcquireTimeout    int // seconds
+
 	// Redis
 	RedisURL string
 
@@ -43,9 +52,21 @@ type Config struct {
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
-		Port:           getEnv("PORT", "8080"),
-		Environment:    getEnv("ENVIRONMENT", "development"),
-		DatabaseURL:    getEnv("DATABASE_URL", "postgres://localhost:5432/kuurier?sslmode=disable"),
+		Port:        getEnv("PORT", "8080"),
+		Environment: getEnv("ENVIRONMENT", "development"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://localhost:5432/kuurier?sslmode=disable"),
+
+		// Database Pool Settings
+		// These defaults are tuned for a moderate workload
+		// Adjust based on your PostgreSQL max_connections and expected load
+		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 50)),          // Max connections in pool
+		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 10)),          // Min idle connections
+		DBMaxConnLifetime:   getEnvInt("DB_MAX_CONN_LIFETIME", 60),         // Close conns older than 60 min
+		DBMaxConnIdleTime:   getEnvInt("DB_MAX_CONN_IDLE_TIME", 15),        // Close idle conns after 15 min
+		DBHealthCheckPeriod: getEnvInt("DB_HEALTH_CHECK_PERIOD", 30),       // Health check every 30s
+		DBConnectTimeout:    getEnvInt("DB_CONNECT_TIMEOUT", 10),           // Connection timeout 10s
+		DBAcquireTimeout:    getEnvInt("DB_ACQUIRE_TIMEOUT", 5),            // Wait max 5s for connection
+
 		RedisURL:       getEnv("REDIS_URL", "redis://localhost:6379"),
 		MinIOEndpoint:  getEnv("MINIO_ENDPOINT", "localhost:9000"),
 		MinIOAccessKey: getEnv("MINIO_ACCESS_KEY", "kuurier_admin"),

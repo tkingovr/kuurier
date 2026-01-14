@@ -21,8 +21,8 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Initialize database connection
-	db, err := storage.NewPostgres(cfg.DatabaseURL)
+	// Initialize database connection with configured pool settings
+	db, err := storage.NewPostgres(cfg)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
