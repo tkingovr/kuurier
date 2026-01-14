@@ -34,6 +34,7 @@
 		52E7DB612F11AA0000CCA28A /* AlertsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB602F11AA0000CCA28A /* AlertsService.swift */; };
 		52E7DB702F11BA0000CCA28A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB712F11BA0000CCA28A /* AppDelegate.swift */; };
 		52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */; };
+		52E7DB812F11CA0000CCA28A /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB802F11CA0000CCA28A /* AppConfig.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -66,6 +67,7 @@
 		52E7DB712F11BA0000CCA28A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
 		52E7DB752F11BA0000CCA28A /* Kuurier.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Kuurier.entitlements; sourceTree = "<group>"; };
+		52E7DB802F11CA0000CCA28A /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -140,9 +142,18 @@
 			path = Storage;
 			sourceTree = "<group>";
 		};
+		52E7DB822F11CA0000CCA28A /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB802F11CA0000CCA28A /* AppConfig.swift */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
 		52E7DAEE2F1151EC00CCA28A /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DB822F11CA0000CCA28A /* Config */,
 				52E7DAE72F1151EC00CCA28A /* Crypto */,
 				52E7DAE92F1151EC00CCA28A /* Models */,
 				52E7DAEB2F1151EC00CCA28A /* Network */,
@@ -388,6 +399,7 @@
 				52E7DB612F11AA0000CCA28A /* AlertsService.swift in Sources */,
 				52E7DB702F11BA0000CCA28A /* AppDelegate.swift in Sources */,
 				52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */,
+				52E7DB812F11CA0000CCA28A /* AppConfig.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

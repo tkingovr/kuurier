@@ -11,21 +11,17 @@ final class APIClient {
     private let encoder: JSONEncoder
 
     private init() {
-        // Configure URL session with certificate pinning
+        // Configure URL session
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
+        config.timeoutIntervalForRequest = AppConfig.apiRequestTimeout
+        config.timeoutIntervalForResource = AppConfig.apiResourceTimeout
         config.waitsForConnectivity = true
 
-        // In production, implement URLSessionDelegate for certificate pinning
+        // TODO: Implement URLSessionDelegate for certificate pinning in production
         self.session = URLSession(configuration: config)
 
-        // Configure base URL (change for production)
-        #if DEBUG
-        self.baseURL = URL(string: "http://localhost:8080/api/v1")!
-        #else
-        self.baseURL = URL(string: "https://api.kuurier.app/api/v1")!
-        #endif
+        // Use URL from AppConfig (see Core/Config/AppConfig.swift)
+        self.baseURL = AppConfig.apiBaseURL
 
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .custom { decoder in

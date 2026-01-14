@@ -1,0 +1,168 @@
+# Production Docker Compose for Kuurier
+#
+# Usage:
+#   1. Copy .env.production.example to .env.production
+#   2. Fill in all required secrets
+#   3. Run: docker-compose -f docker-compose.prod.yml up -d
+#
+# For SSL, use with nginx reverse proxy (see nginx/kuurier.conf)
+
+services:
+  # PostgreSQL with PostGIS for geospatial features
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: kuurier-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kuurier}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-kuurier}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kuurier}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kuurier-internal
+    # Don't expose port in production - only internal access
+    # ports:
+    #   - "5432:5432"
+
+  # Redis for caching, rate limiting, and pub/sub
+  redis:
+    image: redis:7-alpine
+    container_name: kuurier-redis
+    restart: always
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kuurier-internal
+
+  # MinIO for S3-compatible object storage (media files)
+  minio:
+    image: minio/minio:latest
+    container_name: kuurier-minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - kuurier-internal
+
+  # Kuurier API server
+  api:
+    build:
+      context: ../../server
+      dockerfile: ../infra/docker/Dockerfile.server
+    container_name: kuurier-api
+    restart: always
+    environment:
+      PORT: "8080"
+      ENVIRONMENT: production
+
+      # Database
+      DATABASE_URL: postgres://${POSTGRES_USER:-kuurier}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kuurier}?sslmode=disable
+      DB_MAX_CONNS: ${DB_MAX_CONNS:-50}
+      DB_MIN_CONNS: ${DB_MIN_CONNS:-10}
+      DB_MAX_CONN_LIFETIME: ${DB_MAX_CONN_LIFETIME:-60}
+      DB_MAX_CONN_IDLE_TIME: ${DB_MAX_CONN_IDLE_TIME:-15}
+
+      # Redis
+      REDIS_URL: redis://redis:6379
+
+      # Security (REQUIRED)
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      TOKEN_DURATION_HOURS: ${TOKEN_DURATION_HOURS:-720}
+
+      # Object Storage
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-kuurier-media}
+      MINIO_USE_SSL: "false"
+
+      # Push Notifications (optional)
+      APNS_KEY_PATH: ${APNS_KEY_PATH:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-com.kuurier.app}
+      APNS_PRODUCTION: ${APNS_PRODUCTION:-true}
+    ports:
+      - "127.0.0.1:8080:8080"  # Only localhost, nginx will proxy
+    volumes:
+      # Mount APNs key if provided
+      - ${APNS_KEY_PATH:-/dev/null}:${APNS_KEY_PATH:-/dev/null}:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - kuurier-internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Database migrations (run once)
+  migrate:
+    build:
+      context: ../../server
+      dockerfile: ../infra/docker/Dockerfile.server
+    container_name: kuurier-migrate
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-kuurier}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kuurier}?sslmode=disable
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        for f in /app/migrations/*.sql; do
+          echo \"Applying $$f\" &&
+          psql $$DATABASE_URL -f $$f || true
+        done &&
+        echo 'Migrations complete'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - kuurier-internal
+    profiles:
+      - migrate  # Only run with: docker-compose --profile migrate up migrate
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  kuurier-internal:
+    driver: bridge
