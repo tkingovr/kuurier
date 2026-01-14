@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import UIKit
 
 // MARK: - User & Auth
 
@@ -45,6 +46,72 @@ struct PostMedia: Codable, Identifiable {
     enum MediaType: String, Codable {
         case image
         case video
+    }
+}
+
+// MARK: - Media Selection & Upload
+
+/// Represents a locally selected media item before upload
+struct SelectedMediaItem: Identifiable {
+    let id: UUID
+    let data: Data
+    let thumbnail: UIImage?
+    let type: SelectedMediaType
+    let originalFilename: String?
+
+    enum SelectedMediaType {
+        case image
+        case video
+
+        var mimeType: String {
+            switch self {
+            case .image: return "image/jpeg"
+            case .video: return "video/mp4"
+            }
+        }
+
+        var apiValue: String {
+            switch self {
+            case .image: return "image"
+            case .video: return "video"
+            }
+        }
+    }
+
+    init(data: Data, thumbnail: UIImage?, type: SelectedMediaType, originalFilename: String? = nil) {
+        self.id = UUID()
+        self.data = data
+        self.thumbnail = thumbnail
+        self.type = type
+        self.originalFilename = originalFilename
+    }
+}
+
+struct MediaUploadResponse: Decodable {
+    let url: String
+    let mediaType: String
+    let size: Int64
+    let filename: String
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case mediaType = "media_type"
+        case size
+        case filename
+    }
+}
+
+struct MediaAttachResponse: Decodable {
+    let id: String
+    let postId: String
+    let mediaUrl: String
+    let mediaType: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case postId = "post_id"
+        case mediaUrl = "media_url"
+        case mediaType = "media_type"
     }
 }
 
@@ -109,6 +176,31 @@ struct Event: Codable, Identifiable {
     let rsvpCount: Int?
     let userRsvp: RSVPStatus?
     let distanceMeters: Int?
+    let channelId: String?               // Event chat channel ID
+    let isChannelMember: Bool?           // Whether user is member of event channel
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case organizerId = "organizer_id"
+        case title
+        case description
+        case eventType = "event_type"
+        case location
+        case locationName = "location_name"
+        case locationArea = "location_area"
+        case locationVisibility = "location_visibility"
+        case locationRevealed = "location_revealed"
+        case locationRevealAt = "location_reveal_at"
+        case locationHint = "location_hint"
+        case startsAt = "starts_at"
+        case endsAt = "ends_at"
+        case isCancelled = "is_cancelled"
+        case rsvpCount = "rsvp_count"
+        case userRsvp = "user_rsvp"
+        case distanceMeters = "distance_meters"
+        case channelId = "channel_id"
+        case isChannelMember = "is_channel_member"
+    }
 }
 
 enum EventType: String, Codable, CaseIterable {
@@ -197,6 +289,45 @@ struct Alert: Codable, Identifiable {
     let responses: [AlertResponse]?
     let userResponse: AlertResponseStatus?
     let distanceMeters: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case authorId = "author_id"
+        case title
+        case description
+        case severity
+        case severityLabel = "severity_label"
+        case location
+        case locationName = "location_name"
+        case radiusMeters = "radius_meters"
+        case status
+        case createdAt = "created_at"
+        case resolvedAt = "resolved_at"
+        case responseCount = "response_count"
+        case responses
+        case userResponse = "user_response"
+        case distanceMeters = "distance_meters"
+    }
+
+    /// Returns a human-readable severity label
+    var severityDisplayName: String {
+        switch severity {
+        case 1: return "Awareness"
+        case 2: return "Help Needed"
+        case 3: return "Emergency"
+        default: return "Unknown"
+        }
+    }
+
+    /// Returns the color for this severity level
+    var severityColor: String {
+        switch severity {
+        case 1: return "yellow"
+        case 2: return "orange"
+        case 3: return "red"
+        default: return "gray"
+        }
+    }
 }
 
 enum AlertStatus: String, Codable {
@@ -205,11 +336,40 @@ enum AlertStatus: String, Codable {
     case falseAlarm = "false_alarm"
 }
 
-struct AlertResponse: Codable {
+struct AlertResponse: Codable, Identifiable {
     let userId: String
     let status: AlertResponseStatus
     let etaMinutes: Int?
     let createdAt: Date
+
+    var id: String { "\(userId)-\(createdAt.timeIntervalSince1970)" }
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case status
+        case etaMinutes = "eta_minutes"
+        case createdAt = "created_at"
+    }
+
+    /// Returns human-readable status
+    var statusDisplayName: String {
+        switch status {
+        case .acknowledged: return "Acknowledged"
+        case .enRoute: return "On the way"
+        case .arrived: return "Arrived"
+        case .unable: return "Unable to help"
+        }
+    }
+
+    /// Returns icon for the status
+    var statusIcon: String {
+        switch status {
+        case .acknowledged: return "checkmark.circle"
+        case .enRoute: return "figure.walk"
+        case .arrived: return "mappin.circle.fill"
+        case .unable: return "xmark.circle"
+        }
+    }
 }
 
 enum AlertResponseStatus: String, Codable {

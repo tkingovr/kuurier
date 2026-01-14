@@ -20,6 +20,21 @@
 		52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB082F1152EC00CCA28A /* FeedService.swift */; };
 		52E7DB092F115A0000CCA28A /* MapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0A2F115A0000CCA28A /* MapService.swift */; };
 		52E7DB0C2F115B0000CCA28A /* EventsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0B2F115B0000CCA28A /* EventsService.swift */; };
+		52E7DB0D2F116A0000CCA28A /* MediaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0E2F116A0000CCA28A /* MediaService.swift */; };
+		52E7DB102F117A0000CCA28A /* SignalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB112F117A0000CCA28A /* SignalStore.swift */; };
+		52E7DB122F117A0000CCA28A /* SignalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB132F117A0000CCA28A /* SignalService.swift */; };
+		52E7DB202F118A0000CCA28A /* MessagingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB212F118A0000CCA28A /* MessagingModels.swift */; };
+		52E7DB222F118A0000CCA28A /* MessagingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB232F118A0000CCA28A /* MessagingService.swift */; };
+		52E7DB322F118B0000CCA28A /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB312F118B0000CCA28A /* ConversationView.swift */; };
+		52E7DB342F118B0000CCA28A /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB332F118B0000CCA28A /* MessageBubbleView.swift */; };
+		52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */; };
+		52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB372F118B0000CCA28A /* MessagesTabView.swift */; };
+		52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB412F118C0000CCA28A /* WebSocketService.swift */; };
+		52E7DB522F119A0000CCA28A /* SenderKeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB502F119A0000CCA28A /* SenderKeyService.swift */; };
+		52E7DB612F11AA0000CCA28A /* AlertsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB602F11AA0000CCA28A /* AlertsService.swift */; };
+		52E7DB702F11BA0000CCA28A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB712F11BA0000CCA28A /* AppDelegate.swift */; };
+		52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */; };
+		52E7DB812F11CA0000CCA28A /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB802F11CA0000CCA28A /* AppConfig.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +52,22 @@
 		52E7DB082F1152EC00CCA28A /* FeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedService.swift; sourceTree = "<group>"; };
 		52E7DB0A2F115A0000CCA28A /* MapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapService.swift; sourceTree = "<group>"; };
 		52E7DB0B2F115B0000CCA28A /* EventsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventsService.swift; sourceTree = "<group>"; };
+		52E7DB0E2F116A0000CCA28A /* MediaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaService.swift; sourceTree = "<group>"; };
+		52E7DB112F117A0000CCA28A /* SignalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalStore.swift; sourceTree = "<group>"; };
+		52E7DB132F117A0000CCA28A /* SignalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalService.swift; sourceTree = "<group>"; };
+		52E7DB212F118A0000CCA28A /* MessagingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingModels.swift; sourceTree = "<group>"; };
+		52E7DB232F118A0000CCA28A /* MessagingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingService.swift; sourceTree = "<group>"; };
+		52E7DB312F118B0000CCA28A /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
+		52E7DB332F118B0000CCA28A /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
+		52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeMessageView.swift; sourceTree = "<group>"; };
+		52E7DB372F118B0000CCA28A /* MessagesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesTabView.swift; sourceTree = "<group>"; };
+		52E7DB412F118C0000CCA28A /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
+		52E7DB502F119A0000CCA28A /* SenderKeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenderKeyService.swift; sourceTree = "<group>"; };
+		52E7DB602F11AA0000CCA28A /* AlertsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsService.swift; sourceTree = "<group>"; };
+		52E7DB712F11BA0000CCA28A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
+		52E7DB752F11BA0000CCA28A /* Kuurier.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Kuurier.entitlements; sourceTree = "<group>"; };
+		52E7DB802F11CA0000CCA28A /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -69,6 +100,7 @@
 		52E7DAE52F1151EC00CCA28A /* App */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DB712F11BA0000CCA28A /* AppDelegate.swift */,
 				52E7DAE32F1151EC00CCA28A /* ContentView.swift */,
 				52E7DAE42F1151EC00CCA28A /* KuurierApp.swift */,
 			);
@@ -79,6 +111,9 @@
 			isa = PBXGroup;
 			children = (
 				52E7DAE62F1151EC00CCA28A /* KeyManager.swift */,
+				52E7DB502F119A0000CCA28A /* SenderKeyService.swift */,
+				52E7DB112F117A0000CCA28A /* SignalStore.swift */,
+				52E7DB132F117A0000CCA28A /* SignalService.swift */,
 			);
 			path = Crypto;
 			sourceTree = "<group>";
@@ -107,9 +142,18 @@
 			path = Storage;
 			sourceTree = "<group>";
 		};
+		52E7DB822F11CA0000CCA28A /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB802F11CA0000CCA28A /* AppConfig.swift */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
 		52E7DAEE2F1151EC00CCA28A /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DB822F11CA0000CCA28A /* Config */,
 				52E7DAE72F1151EC00CCA28A /* Crypto */,
 				52E7DAE92F1151EC00CCA28A /* Models */,
 				52E7DAEB2F1151EC00CCA28A /* Network */,
@@ -121,6 +165,7 @@
 		52E7DAEF2F1151EC00CCA28A /* Alerts */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DB602F11AA0000CCA28A /* AlertsService.swift */,
 			);
 			path = Alerts;
 			sourceTree = "<group>";
@@ -145,6 +190,7 @@
 			isa = PBXGroup;
 			children = (
 				52E7DB082F1152EC00CCA28A /* FeedService.swift */,
+				52E7DB0E2F116A0000CCA28A /* MediaService.swift */,
 			);
 			path = Feed;
 			sourceTree = "<group>";
@@ -164,6 +210,14 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		52E7DB742F11BA0000CCA28A /* Push */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */,
+			);
+			path = Push;
+			sourceTree = "<group>";
+		};
 		52E7DB042F1151EC00CCA28A /* Invites */ = {
 			isa = PBXGroup;
 			children = (
@@ -171,6 +225,44 @@
 				52E7DB032F1151EC00CCA28A /* InvitesView.swift */,
 			);
 			path = Invites;
+			sourceTree = "<group>";
+		};
+		52E7DB242F118A0000CCA28A /* Messaging */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB252F118A0000CCA28A /* Models */,
+				52E7DB262F118A0000CCA28A /* Services */,
+				52E7DB302F118B0000CCA28A /* Views */,
+			);
+			path = Messaging;
+			sourceTree = "<group>";
+		};
+		52E7DB252F118A0000CCA28A /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB212F118A0000CCA28A /* MessagingModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		52E7DB262F118A0000CCA28A /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB232F118A0000CCA28A /* MessagingService.swift */,
+				52E7DB412F118C0000CCA28A /* WebSocketService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		52E7DB302F118B0000CCA28A /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DB312F118B0000CCA28A /* ConversationView.swift */,
+				52E7DB332F118B0000CCA28A /* MessageBubbleView.swift */,
+				52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */,
+				52E7DB372F118B0000CCA28A /* MessagesTabView.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 		52E7DAF62F1151EC00CCA28A /* Features */ = {
@@ -182,6 +274,8 @@
 				52E7DAF32F1151EC00CCA28A /* Feed */,
 				52E7DB042F1151EC00CCA28A /* Invites */,
 				52E7DAF42F1151EC00CCA28A /* Map */,
+				52E7DB242F118A0000CCA28A /* Messaging */,
+				52E7DB742F11BA0000CCA28A /* Push */,
 				52E7DAF52F1151EC00CCA28A /* Settings */,
 			);
 			path = Features;
@@ -202,6 +296,7 @@
 				52E7DAF62F1151EC00CCA28A /* Features */,
 				52E7DAF72F1151EC00CCA28A /* Resources */,
 				52E7DAF82F1151EC00CCA28A /* Assets.xcassets */,
+				52E7DB752F11BA0000CCA28A /* Kuurier.entitlements */,
 			);
 			path = Kuurier;
 			sourceTree = "<group>";
@@ -290,6 +385,21 @@
 				52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */,
 				52E7DB092F115A0000CCA28A /* MapService.swift in Sources */,
 				52E7DB0C2F115B0000CCA28A /* EventsService.swift in Sources */,
+				52E7DB0D2F116A0000CCA28A /* MediaService.swift in Sources */,
+				52E7DB102F117A0000CCA28A /* SignalStore.swift in Sources */,
+				52E7DB122F117A0000CCA28A /* SignalService.swift in Sources */,
+				52E7DB202F118A0000CCA28A /* MessagingModels.swift in Sources */,
+				52E7DB222F118A0000CCA28A /* MessagingService.swift in Sources */,
+				52E7DB322F118B0000CCA28A /* ConversationView.swift in Sources */,
+				52E7DB342F118B0000CCA28A /* MessageBubbleView.swift in Sources */,
+				52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */,
+				52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */,
+				52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */,
+				52E7DB522F119A0000CCA28A /* SenderKeyService.swift in Sources */,
+				52E7DB612F11AA0000CCA28A /* AlertsService.swift in Sources */,
+				52E7DB702F11BA0000CCA28A /* AppDelegate.swift in Sources */,
+				52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */,
+				52E7DB812F11CA0000CCA28A /* AppConfig.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -422,6 +532,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Kuurier/Kuurier.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U7QJ5RPT9D;
@@ -455,6 +566,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Kuurier/Kuurier.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U7QJ5RPT9D;

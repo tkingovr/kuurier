@@ -94,6 +94,7 @@ struct InvitesView: View {
             }
         }
         .navigationTitle("Invites")
+        .navigationBarTitleDisplayMode(.large)
         .refreshable {
             await inviteService.fetchInvites()
         }

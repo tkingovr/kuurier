@@ -21,8 +21,8 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Initialize database connection
-	db, err := storage.NewPostgres(cfg.DatabaseURL)
+	// Initialize database connection with configured pool settings
+	db, err := storage.NewPostgres(cfg)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -42,8 +42,26 @@ func main() {
 		minio = nil
 	}
 
-	// Create router
-	router := api.NewRouter(cfg, db, redis, minio)
+	// Initialize APNs (push notifications)
+	apnsCfg := storage.APNsConfig{
+		KeyPath:    cfg.APNsKeyPath,
+		KeyID:      cfg.APNsKeyID,
+		TeamID:     cfg.APNsTeamID,
+		BundleID:   cfg.APNsBundleID,
+		Production: cfg.APNsProduction,
+	}
+	apns, err := storage.NewAPNs(apnsCfg)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize APNs: %v (push notifications disabled)", err)
+		apns = nil
+	}
+
+	// Create router and WebSocket hub
+	router, wsHub := api.NewRouter(cfg, db, redis, minio, apns)
+
+	// Start WebSocket hub
+	go wsHub.Run()
+	defer wsHub.Stop()
 
 	// Create server
 	srv := &http.Server{
@@ -56,7 +74,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("Kuurier server starting on port %s", cfg.Port)
+		log.Printf("Kuurier server starting on port %s (WebSocket enabled)", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}

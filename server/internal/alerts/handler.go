@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kuurier/server/internal/config"
+	"github.com/kuurier/server/internal/push"
 	"github.com/kuurier/server/internal/storage"
 )
 
@@ -16,11 +17,12 @@ type Handler struct {
 	cfg   *config.Config
 	db    *storage.Postgres
 	redis *storage.Redis
+	push  *push.Service
 }
 
 // NewHandler creates a new alerts handler
-func NewHandler(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *Handler {
-	return &Handler{cfg: cfg, db: db, redis: redis}
+func NewHandler(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, pushService *push.Service) *Handler {
+	return &Handler{cfg: cfg, db: db, redis: redis, push: pushService}
 }
 
 // CreateAlertRequest represents a new SOS alert
@@ -165,10 +167,12 @@ func (h *Handler) CreateAlert(c *gin.Context) {
 		return
 	}
 
-	// TODO: Trigger push notifications to users within radius
-	// This would be done via Redis pub/sub and a separate notification service
+	// Send push notifications to users within radius
+	if h.push != nil {
+		go h.push.SendAlertToNearbyUsers(ctx, alertID, userID)
+	}
 
-	// Publish alert to Redis for real-time notification
+	// Publish alert to Redis for real-time notification (WebSocket)
 	h.redis.Publish(ctx, "alerts:new", alertID)
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -367,7 +371,12 @@ func (h *Handler) RespondToAlert(c *gin.Context) {
 		return
 	}
 
-	// Notify alert author of new response
+	// Send push notification to alert author
+	if h.push != nil {
+		go h.push.SendAlertResponseNotification(ctx, alertID, userID)
+	}
+
+	// Notify via WebSocket too
 	h.redis.Publish(ctx, "alerts:response:"+alertID, userID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "response recorded", "status": req.Status})

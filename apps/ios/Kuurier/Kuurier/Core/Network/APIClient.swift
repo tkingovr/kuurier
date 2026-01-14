@@ -6,30 +6,45 @@ final class APIClient {
     static let shared = APIClient()
 
     private let session: URLSession
-    private let baseURL: URL
+    let baseURL: URL
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
     private init() {
-        // Configure URL session with certificate pinning
+        // Configure URL session
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
+        config.timeoutIntervalForRequest = AppConfig.apiRequestTimeout
+        config.timeoutIntervalForResource = AppConfig.apiResourceTimeout
         config.waitsForConnectivity = true
 
-        // In production, implement URLSessionDelegate for certificate pinning
+        // TODO: Implement URLSessionDelegate for certificate pinning in production
         self.session = URLSession(configuration: config)
 
-        // Configure base URL (change for production)
-        #if DEBUG
-        self.baseURL = URL(string: "http://localhost:8080/api/v1")!
-        #else
-        self.baseURL = URL(string: "https://api.kuurier.app/api/v1")!
-        #endif
+        // Use URL from AppConfig (see Core/Config/AppConfig.swift)
+        self.baseURL = AppConfig.apiBaseURL
 
         self.decoder = JSONDecoder()
-        self.decoder.dateDecodingStrategy = .iso8601
-        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
+        self.decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let dateString = try container.decode(String.self)
+
+            // Try ISO8601 with fractional seconds (Go's default format)
+            let iso8601WithFractional = ISO8601DateFormatter()
+            iso8601WithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = iso8601WithFractional.date(from: dateString) {
+                return date
+            }
+
+            // Fallback to standard ISO8601
+            let iso8601 = ISO8601DateFormatter()
+            iso8601.formatOptions = [.withInternetDateTime]
+            if let date = iso8601.date(from: dateString) {
+                return date
+            }
+
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date: \(dateString)")
+        }
+        // Note: Not using .convertFromSnakeCase since models have explicit CodingKeys
 
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
@@ -57,6 +72,38 @@ final class APIClient {
 
     func delete<T: Decodable>(_ path: String) async throws -> T {
         let request = try buildRequest(path: path, method: "DELETE")
+        return try await execute(request)
+    }
+
+    // MARK: - Multipart Upload
+
+    /// Uploads a file using multipart/form-data
+    func uploadMultipart<T: Decodable>(
+        _ path: String,
+        fileData: Data,
+        filename: String,
+        mimeType: String,
+        fieldName: String = "file"
+    ) async throws -> T {
+        let boundary = "Boundary-\(UUID().uuidString)"
+
+        var request = try buildRequest(path: path, method: "POST")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+
+        // File part
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n".data(using: .utf8)!)
+
+        // Closing boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
         return try await execute(request)
     }
 

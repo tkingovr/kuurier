@@ -279,6 +279,18 @@ struct RSVPResponse: Decodable {
     let location: Location?
     let locationName: String?
     let locationRevealed: Bool?
+    let channelId: String?
+    let joinedChannel: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case message
+        case status
+        case location
+        case locationName = "location_name"
+        case locationRevealed = "location_revealed"
+        case channelId = "channel_id"
+        case joinedChannel = "joined_channel"
+    }
 }
 
 private struct PublicEventsResponse: Decodable {

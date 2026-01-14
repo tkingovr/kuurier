@@ -2,14 +2,15 @@ import SwiftUI
 import MapKit
 import CoreLocation
 import Combine
+import PhotosUI
 
 struct ContentView: View {
 
     @EnvironmentObject var authService: AuthService
-    @State private var selectedTab: Tab = .feed
+    @State private var selectedTab: Tab = .discover
 
     enum Tab {
-        case feed, map, events, alerts, settings
+        case discover, messages, events, alerts, settings
     }
 
     var body: some View {
@@ -25,17 +26,17 @@ struct ContentView: View {
 
     private var mainTabView: some View {
         TabView(selection: $selectedTab) {
-            FeedView()
+            DiscoverView()
                 .tabItem {
-                    Label("Feed", systemImage: "newspaper")
+                    Label("Discover", systemImage: "globe")
                 }
-                .tag(Tab.feed)
+                .tag(Tab.discover)
 
-            MapView()
+            MessagesTabView()
                 .tabItem {
-                    Label("Map", systemImage: "map")
+                    Label("Messages", systemImage: "bubble.left.and.bubble.right")
                 }
-                .tag(Tab.map)
+                .tag(Tab.messages)
 
             EventsView()
                 .tabItem {
@@ -59,7 +60,315 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Placeholder Views
+// MARK: - Discover View (Combined Feed + Map)
+
+struct DiscoverView: View {
+    @State private var viewMode: DiscoverMode = .feed
+
+    enum DiscoverMode: String, CaseIterable {
+        case feed = "Feed"
+        case map = "Map"
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // View mode picker
+                Picker("View", selection: $viewMode) {
+                    ForEach(DiscoverMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                // Content based on selected mode
+                switch viewMode {
+                case .feed:
+                    FeedContentView()
+                case .map:
+                    MapContentView()
+                }
+            }
+            .navigationTitle("Discover")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    if viewMode == .feed {
+                        FeedComposeButton()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Feed Content View (without NavigationStack)
+
+struct FeedContentView: View {
+    @EnvironmentObject var authService: AuthService
+    @StateObject private var feedService = FeedService.shared
+    @State private var showComposeSheet = false
+    @State private var showLockedAlert = false
+
+    private var canPost: Bool {
+        guard let user = authService.currentUser else { return false }
+        return user.trustScore >= 25
+    }
+
+    var body: some View {
+        Group {
+            if feedService.posts.isEmpty && !feedService.isLoading {
+                ContentUnavailableView(
+                    "No posts yet",
+                    systemImage: "newspaper",
+                    description: Text("Be the first to share what's happening")
+                )
+            } else {
+                List {
+                    ForEach(feedService.posts) { post in
+                        PostRowView(post: post)
+                    }
+
+                    if feedService.isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                .listStyle(.plain)
+                .refreshable {
+                    await feedService.fetchFeed()
+                }
+            }
+        }
+        .sheet(isPresented: $showComposeSheet) {
+            ComposePostView()
+        }
+        .task {
+            await feedService.fetchFeed()
+        }
+    }
+}
+
+// MARK: - Map Content View (without NavigationStack)
+
+struct MapContentView: View {
+    @StateObject private var mapService = MapService.shared
+    @StateObject private var eventsService = EventsService.shared
+    @State private var cameraPosition: MapCameraPosition = .region(MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 25.0, longitude: 30.0),
+        span: MKCoordinateSpan(latitudeDelta: 100, longitudeDelta: 150)
+    ))
+    @State private var selectedMarker: MapMarker?
+    @State private var showMarkerDetail = false
+    @State private var selectedEvent: Event?
+    @State private var showEventDetail = false
+    @State private var publicEvents: [Event] = []
+    @State private var heatmapCells: [HeatmapCell] = []
+    @State private var currentZoom: Int = 5
+
+    var body: some View {
+        ZStack {
+            Map(position: $cameraPosition) {
+                UserAnnotation()
+
+                // Heatmap zones
+                ForEach(heatmapCells, id: \.latitude) { cell in
+                    MapCircle(
+                        center: CLLocationCoordinate2D(latitude: cell.latitude, longitude: cell.longitude),
+                        radius: heatmapRadius(for: currentZoom, count: cell.count)
+                    )
+                    .foregroundStyle(heatmapColor(for: cell).opacity(0.4))
+                    .stroke(heatmapColor(for: cell), lineWidth: cell.maxUrgency >= 3 ? 3 : 1)
+                }
+
+                // Markers from API
+                ForEach(mapService.markers) { marker in
+                    if marker.type == .cluster {
+                        Annotation("", coordinate: marker.coordinate) {
+                            ClusterMarkerView(
+                                count: marker.count ?? 0,
+                                maxUrgency: marker.maxUrgency ?? 1
+                            )
+                        }
+                    } else {
+                        Annotation("", coordinate: marker.coordinate) {
+                            PostMarkerView(
+                                urgency: marker.maxUrgency ?? 1,
+                                sourceType: marker.sourceType ?? "firsthand"
+                            )
+                            .onTapGesture {
+                                selectedMarker = marker
+                                showMarkerDetail = true
+                            }
+                        }
+                    }
+                }
+
+                // Public events
+                ForEach(publicEvents) { event in
+                    if let location = event.location {
+                        Annotation("", coordinate: location.coordinate) {
+                            EventMarkerView(eventType: event.eventType)
+                                .onTapGesture {
+                                    selectedEvent = event
+                                    showEventDetail = true
+                                }
+                        }
+                    }
+                }
+            }
+            .mapStyle(.standard(elevation: .realistic))
+            .mapControls {
+                MapUserLocationButton()
+                MapCompass()
+                MapScaleView()
+            }
+            .onMapCameraChange(frequency: .onEnd) { context in
+                let region = context.region
+                let zoom = calculateZoom(from: region.span.latitudeDelta)
+                currentZoom = zoom
+
+                Task {
+                    // Create MapRegion from the visible region
+                    let mapRegion = MapRegion(
+                        minLat: region.center.latitude - region.span.latitudeDelta / 2,
+                        maxLat: region.center.latitude + region.span.latitudeDelta / 2,
+                        minLon: region.center.longitude - region.span.longitudeDelta / 2,
+                        maxLon: region.center.longitude + region.span.longitudeDelta / 2
+                    )
+
+                    let gridSize = gridSizeForZoom(zoom)
+                    heatmapCells = await mapService.fetchHeatmap(region: mapRegion, gridSize: gridSize)
+
+                    await mapService.fetchMarkers(region: mapRegion, zoom: zoom)
+
+                    publicEvents = await eventsService.fetchPublicEventsForMap(
+                        minLat: mapRegion.minLat,
+                        maxLat: mapRegion.maxLat,
+                        minLon: mapRegion.minLon,
+                        maxLon: mapRegion.maxLon
+                    )
+                }
+            }
+        }
+        .sheet(isPresented: $showMarkerDetail) {
+            if let marker = selectedMarker {
+                NavigationStack {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let content = marker.content {
+                            Text(content)
+                                .font(.body)
+                        }
+                        if let createdAt = marker.createdAt {
+                            Text(createdAt, style: .relative)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        if let sourceType = marker.sourceType {
+                            HStack {
+                                Image(systemName: sourceType == "firsthand" ? "person.fill" : "arrow.triangle.branch")
+                                Text(sourceType.capitalized)
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding()
+                    .navigationTitle(marker.type == .cluster ? "Cluster (\(marker.count ?? 0))" : "Post")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showMarkerDetail = false }
+                        }
+                    }
+                }
+                .presentationDetents([.medium])
+            }
+        }
+        .sheet(isPresented: $showEventDetail) {
+            if let event = selectedEvent {
+                EventDetailView(event: event)
+            }
+        }
+    }
+
+    private func heatmapRadius(for zoom: Int, count: Int) -> CLLocationDistance {
+        let baseRadius: Double = 50000
+        let zoomFactor = pow(2.0, Double(max(0, 10 - zoom)))
+        let countFactor = min(2.0, 1.0 + Double(count) / 50.0)
+        return baseRadius * zoomFactor * countFactor
+    }
+
+    private func heatmapColor(for cell: HeatmapCell) -> Color {
+        switch cell.maxUrgency {
+        case 1: return .green
+        case 2: return .yellow
+        case 3: return .orange
+        case 4...5: return .red
+        default: return .blue
+        }
+    }
+
+    private func calculateZoom(from latDelta: Double) -> Int {
+        let zoom = Int(log2(360.0 / latDelta))
+        return max(1, min(20, zoom))
+    }
+
+    private func gridSizeForZoom(_ zoom: Int) -> Double {
+        switch zoom {
+        case 0...4: return 2.0   // Large grid for zoomed out
+        case 5...8: return 1.0   // Medium grid
+        default: return 0.5     // Small grid for zoomed in
+        }
+    }
+}
+
+// MARK: - Feed Compose Button
+
+struct FeedComposeButton: View {
+    @EnvironmentObject var authService: AuthService
+    @State private var showComposeSheet = false
+    @State private var showLockedAlert = false
+
+    private var canPost: Bool {
+        guard let user = authService.currentUser else { return false }
+        return user.trustScore >= 25
+    }
+
+    private var trustNeeded: Int {
+        guard let user = authService.currentUser else { return 25 }
+        return max(0, 25 - user.trustScore)
+    }
+
+    var body: some View {
+        Button(action: {
+            if canPost {
+                showComposeSheet = true
+            } else {
+                showLockedAlert = true
+            }
+        }) {
+            Image(systemName: canPost ? "square.and.pencil" : "lock.fill")
+                .foregroundColor(canPost ? .orange : .gray)
+        }
+        .sheet(isPresented: $showComposeSheet) {
+            ComposePostView()
+        }
+        .alert("Posting Locked", isPresented: $showLockedAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You need a trust score of 25 to create posts. Get \(trustNeeded) more point\(trustNeeded == 1 ? "" : "s") by receiving vouches from trusted members.")
+        }
+    }
+}
+
+// MARK: - Legacy Feed View (kept for reference)
 
 struct FeedView: View {
     @EnvironmentObject var authService: AuthService
@@ -418,16 +727,139 @@ struct PostMediaView: View {
     }
 }
 
+// MARK: - Media Thumbnail View (for compose)
+
+struct MediaThumbnailView: View {
+    let item: SelectedMediaItem
+    let onRemove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            // Thumbnail
+            if let thumbnail = item.thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 80, height: 80)
+                    .clipped()
+                    .cornerRadius(8)
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 80, height: 80)
+                    .overlay {
+                        Image(systemName: item.type == .video ? "video" : "photo")
+                            .foregroundColor(.secondary)
+                    }
+            }
+
+            // Video indicator
+            if item.type == .video {
+                Image(systemName: "video.fill")
+                    .font(.caption2)
+                    .foregroundColor(.white)
+                    .padding(4)
+                    .background(Color.black.opacity(0.6))
+                    .cornerRadius(4)
+                    .padding(4)
+            }
+
+            // Remove button
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
+            }
+            .offset(x: 6, y: -6)
+        }
+    }
+}
+
+// MARK: - Upload Progress Overlay
+
+struct UploadProgressOverlay: View {
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 200)
+                    .tint(.orange)
+
+                Text("Uploading media... \(Int(progress * 100))%")
+                    .font(.subheadline)
+                    .foregroundColor(.white)
+            }
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.ultraThinMaterial)
+            )
+        }
+    }
+}
+
+// MARK: - Camera View
+
+struct CameraView: UIViewControllerRepresentable {
+    let onCapture: (UIImage) -> Void
+    @Environment(\.dismiss) var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        picker.allowsEditing = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraView
+
+        init(_ parent: CameraView) {
+            self.parent = parent
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onCapture(image)
+            }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+    }
+}
+
 // MARK: - Compose Post View
 
 struct ComposePostView: View {
     @Environment(\.dismiss) var dismiss
     @StateObject private var feedService = FeedService.shared
+    @StateObject private var mediaService = MediaService.shared
     @State private var content = ""
     @State private var sourceType: SourceType = .firsthand
     @State private var urgency: Int = 1
     @State private var includeLocation = false
     @State private var locationName: String = ""
+
+    // Media selection state
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showingCamera = false
 
     private let maxCharacters = 500
 
@@ -462,6 +894,54 @@ struct ComposePostView: View {
                             .font(.caption)
                             .foregroundColor(content.count > maxCharacters - 50 ? .orange : .secondary)
                     }
+                }
+
+                // Media Section
+                Section("Media") {
+                    // Selected media thumbnails
+                    if !mediaService.selectedItems.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(mediaService.selectedItems) { item in
+                                    MediaThumbnailView(item: item) {
+                                        mediaService.removeItem(id: item.id)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    // Add media buttons
+                    if mediaService.canAddMore {
+                        HStack(spacing: 16) {
+                            PhotosPicker(
+                                selection: $selectedPhotoItems,
+                                maxSelectionCount: mediaService.remainingSlots,
+                                matching: .any(of: [.images, .videos])
+                            ) {
+                                Label("Photo Library", systemImage: "photo.on.rectangle")
+                            }
+                            .onChange(of: selectedPhotoItems) { _, newItems in
+                                Task {
+                                    await mediaService.processPickerSelection(newItems)
+                                    selectedPhotoItems = []
+                                }
+                            }
+
+                            Button {
+                                showingCamera = true
+                            } label: {
+                                Label("Camera", systemImage: "camera")
+                            }
+                        }
+                        .foregroundColor(.orange)
+                    }
+
+                    // Status text
+                    Text("\(mediaService.selectedItems.count)/5 media items")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
                 // Source Section
@@ -535,10 +1015,35 @@ struct ComposePostView: View {
                                 .fontWeight(.semibold)
                         }
                     }
-                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || feedService.isCreatingPost)
+                    .disabled(
+                        content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        feedService.isCreatingPost ||
+                        mediaService.isUploading
+                    )
                 }
             }
-            .interactiveDismissDisabled(feedService.isCreatingPost)
+            .interactiveDismissDisabled(feedService.isCreatingPost || mediaService.isUploading)
+            .overlay {
+                if mediaService.isUploading {
+                    UploadProgressOverlay(progress: mediaService.uploadProgress)
+                }
+            }
+            .sheet(isPresented: $showingCamera) {
+                CameraView { image in
+                    if let data = image.jpegData(compressionQuality: 0.8) {
+                        let item = SelectedMediaItem(
+                            data: data,
+                            thumbnail: image,
+                            type: .image,
+                            originalFilename: "camera_photo.jpg"
+                        )
+                        mediaService.addItem(item)
+                    }
+                }
+            }
+            .onDisappear {
+                mediaService.clearSelection()
+            }
         }
     }
 
@@ -587,16 +1092,31 @@ struct ComposePostView: View {
         print("ComposePostView: Submit button tapped")
         Task {
             print("ComposePostView: Calling createPost...")
-            let success = await feedService.createPost(
+
+            // Step 1: Create the post
+            guard let postId = await feedService.createPost(
                 content: content.trimmingCharacters(in: .whitespacesAndNewlines),
                 sourceType: sourceType,
                 locationName: includeLocation && !locationName.isEmpty ? locationName : nil,
                 urgency: urgency
-            )
-            print("ComposePostView: createPost returned success=\(success)")
-            if success {
-                dismiss()
+            ) else {
+                print("ComposePostView: createPost failed")
+                return
             }
+
+            print("ComposePostView: Post created with id=\(postId)")
+
+            // Step 2: Upload and attach media if any
+            if !mediaService.selectedItems.isEmpty {
+                print("ComposePostView: Uploading \(mediaService.selectedItems.count) media items...")
+                let uploadedUrls = await mediaService.uploadAndAttachMedia(to: postId)
+                print("ComposePostView: Uploaded \(uploadedUrls.count) media items")
+            }
+
+            // Step 3: Finish and refresh
+            await feedService.finishPostCreation(success: true)
+            mediaService.clearSelection()
+            dismiss()
         }
     }
 }
@@ -1578,6 +2098,62 @@ struct EventDetailView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    // Event Chat section
+                    if let channelId = currentEvent.channelId {
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Event Chat")
+                                .font(.headline)
+
+                            if currentEvent.isChannelMember == true || isOrganizer {
+                                NavigationLink {
+                                    ConversationView(channelId: channelId)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                                            .font(.title2)
+                                            .foregroundColor(.white)
+                                            .frame(width: 44, height: 44)
+                                            .background(Color.orange)
+                                            .cornerRadius(10)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Open Chat")
+                                                .font(.subheadline)
+                                                .fontWeight(.medium)
+                                            Text("Chat with other attendees")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.right")
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding()
+                                    .background(Color(UIColor.secondarySystemBackground))
+                                    .cornerRadius(12)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                VStack(spacing: 8) {
+                                    Image(systemName: "lock.fill")
+                                        .font(.title2)
+                                        .foregroundColor(.secondary)
+                                    Text("RSVP to join the event chat")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .cornerRadius(12)
+                            }
+                        }
+                    }
                 }
                 .padding()
             }
@@ -1842,8 +2418,18 @@ struct CreateEventView: View {
 
 struct AlertsView: View {
     @EnvironmentObject var authService: AuthService
+    @StateObject private var alertsService = AlertsService.shared
     @State private var showSOSSheet = false
     @State private var showLockedAlert = false
+    @State private var selectedAlert: Alert?
+    @State private var showAlertDetail = false
+    @State private var selectedTab: AlertTab = .nearby
+
+    enum AlertTab: String, CaseIterable {
+        case nearby = "Nearby"
+        case all = "All Active"
+        case myAlerts = "My Alerts"
+    }
 
     private var canSendSOS: Bool {
         guard let user = authService.currentUser else { return false }
@@ -1857,66 +2443,878 @@ struct AlertsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                // SOS Button at top
-                Section {
-                    Button(action: {
+            VStack(spacing: 0) {
+                // SOS Button at top - always visible
+                SOSButtonSection(
+                    canSendSOS: canSendSOS,
+                    onTap: {
                         if canSendSOS {
                             showSOSSheet = true
                         } else {
                             showLockedAlert = true
                         }
-                    }) {
-                        HStack {
-                            Spacer()
-                            VStack(spacing: 8) {
-                                Image(systemName: canSendSOS ? "exclamationmark.triangle.fill" : "lock.fill")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(canSendSOS ? .red : .gray)
-                                Text(canSendSOS ? "Send SOS Alert" : "SOS Locked")
-                                    .font(.headline)
-                                    .foregroundColor(canSendSOS ? .red : .gray)
-                                if !canSendSOS {
-                                    Text("Requires trust score of 100")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 20)
-                            Spacer()
-                        }
                     }
-                    .buttonStyle(.plain)
-                }
+                )
 
-                // Active alerts section
-                Section("Active Alerts Nearby") {
-                    Text("No active alerts in your area")
-                        .foregroundColor(.secondary)
+                // Tab picker
+                Picker("View", selection: $selectedTab) {
+                    ForEach(AlertTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                // Content based on selected tab
+                switch selectedTab {
+                case .nearby:
+                    NearbyAlertsListView(
+                        alerts: alertsService.nearbyAlerts,
+                        isLoading: alertsService.isLoading,
+                        onSelectAlert: { alert in
+                            selectedAlert = alert
+                            showAlertDetail = true
+                        }
+                    )
+                case .all:
+                    AlertsListView(
+                        alerts: alertsService.alerts,
+                        isLoading: alertsService.isLoading,
+                        onSelectAlert: { alert in
+                            selectedAlert = alert
+                            showAlertDetail = true
+                        }
+                    )
+                case .myAlerts:
+                    MyAlertsListView(
+                        alerts: alertsService.alerts.filter { $0.authorId == authService.currentUser?.id },
+                        isLoading: alertsService.isLoading,
+                        onSelectAlert: { alert in
+                            selectedAlert = alert
+                            showAlertDetail = true
+                        }
+                    )
                 }
             }
             .navigationTitle("Alerts")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task {
+                            await alertsService.fetchAlerts(refresh: true)
+                            await alertsService.fetchNearbyAlertsFromCurrentLocation()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+            }
             .sheet(isPresented: $showSOSSheet) {
                 SendSOSView()
+            }
+            .sheet(isPresented: $showAlertDetail) {
+                if let alert = selectedAlert {
+                    AlertDetailView(alert: alert)
+                }
             }
             .alert("SOS Alerts Locked", isPresented: $showLockedAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("SOS alerts require a trust score of 100 or verified status to prevent misuse. Get \(trustNeeded) more point\(trustNeeded == 1 ? "" : "s") by receiving vouches from trusted members.")
             }
+            .task {
+                await alertsService.fetchAlerts()
+                await alertsService.fetchNearbyAlertsFromCurrentLocation()
+            }
         }
     }
 }
 
-struct SendSOSView: View {
+// MARK: - SOS Button Section
+
+struct SOSButtonSection: View {
+    let canSendSOS: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                Spacer()
+                VStack(spacing: 8) {
+                    ZStack {
+                        Circle()
+                            .fill(canSendSOS ? Color.red.opacity(0.15) : Color.gray.opacity(0.1))
+                            .frame(width: 80, height: 80)
+
+                        Image(systemName: canSendSOS ? "exclamationmark.triangle.fill" : "lock.fill")
+                            .font(.system(size: 36))
+                            .foregroundColor(canSendSOS ? .red : .gray)
+                    }
+
+                    Text(canSendSOS ? "Send SOS Alert" : "SOS Locked")
+                        .font(.headline)
+                        .foregroundColor(canSendSOS ? .red : .gray)
+
+                    if !canSendSOS {
+                        Text("Requires trust score of 100 or verified status")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    } else {
+                        Text("Alert nearby trusted members")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 16)
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
+// MARK: - Alerts List Views
+
+struct AlertsListView: View {
+    let alerts: [Alert]
+    let isLoading: Bool
+    let onSelectAlert: (Alert) -> Void
+
+    var body: some View {
+        Group {
+            if alerts.isEmpty && !isLoading {
+                ContentUnavailableView(
+                    "No Active Alerts",
+                    systemImage: "checkmark.shield",
+                    description: Text("There are no active SOS alerts at this time")
+                )
+            } else {
+                List {
+                    ForEach(alerts) { alert in
+                        AlertRowView(alert: alert)
+                            .onTapGesture {
+                                onSelectAlert(alert)
+                            }
+                    }
+
+                    if isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+}
+
+struct NearbyAlertsListView: View {
+    let alerts: [Alert]
+    let isLoading: Bool
+    let onSelectAlert: (Alert) -> Void
+
+    var body: some View {
+        Group {
+            if alerts.isEmpty && !isLoading {
+                ContentUnavailableView(
+                    "No Alerts Nearby",
+                    systemImage: "location.slash",
+                    description: Text("There are no active SOS alerts in your area. Enable location access to see nearby alerts.")
+                )
+            } else {
+                List {
+                    ForEach(alerts) { alert in
+                        AlertRowView(alert: alert, showDistance: true)
+                            .onTapGesture {
+                                onSelectAlert(alert)
+                            }
+                    }
+
+                    if isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+}
+
+struct MyAlertsListView: View {
+    let alerts: [Alert]
+    let isLoading: Bool
+    let onSelectAlert: (Alert) -> Void
+
+    var body: some View {
+        Group {
+            if alerts.isEmpty && !isLoading {
+                ContentUnavailableView(
+                    "No Alerts Created",
+                    systemImage: "bell.slash",
+                    description: Text("You haven't created any SOS alerts")
+                )
+            } else {
+                List {
+                    ForEach(alerts) { alert in
+                        AlertRowView(alert: alert, isOwned: true)
+                            .onTapGesture {
+                                onSelectAlert(alert)
+                            }
+                    }
+
+                    if isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+}
+
+// MARK: - Alert Row View
+
+struct AlertRowView: View {
+    let alert: Alert
+    var showDistance: Bool = false
+    var isOwned: Bool = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Severity indicator
+            severityIcon
+                .frame(width: 44, height: 44)
+
+            // Content
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(alert.title)
+                        .font(.headline)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    if alert.status != .active {
+                        statusBadge
+                    }
+                }
+
+                if let description = alert.description, !description.isEmpty {
+                    Text(description)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+
+                HStack(spacing: 8) {
+                    // Location
+                    if let locationName = alert.locationName {
+                        Label(locationName, systemImage: "mappin")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    // Distance
+                    if showDistance, let distance = alert.distanceMeters {
+                        Text(formatDistance(distance))
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+
+                    Spacer()
+
+                    // Response count
+                    if let count = alert.responseCount, count > 0 {
+                        Label("\(count)", systemImage: "person.2.fill")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    // Time
+                    Text(alert.createdAt, style: .relative)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var severityIcon: some View {
+        ZStack {
+            Circle()
+                .fill(severityColor.opacity(0.15))
+
+            Image(systemName: severityIconName)
+                .font(.system(size: 20))
+                .foregroundColor(severityColor)
+        }
+    }
+
+    private var severityColor: Color {
+        switch alert.severity {
+        case 1: return .yellow
+        case 2: return .orange
+        case 3: return .red
+        default: return .gray
+        }
+    }
+
+    private var severityIconName: String {
+        switch alert.severity {
+        case 1: return "info.circle.fill"
+        case 2: return "exclamationmark.circle.fill"
+        case 3: return "exclamationmark.triangle.fill"
+        default: return "questionmark.circle.fill"
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch alert.status {
+        case .resolved:
+            Text("Resolved")
+                .font(.caption2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.green.opacity(0.2))
+                .foregroundColor(.green)
+                .cornerRadius(4)
+        case .falseAlarm:
+            Text("False Alarm")
+                .font(.caption2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.gray.opacity(0.2))
+                .foregroundColor(.gray)
+                .cornerRadius(4)
+        case .active:
+            EmptyView()
+        }
+    }
+
+    private func formatDistance(_ meters: Int) -> String {
+        if meters < 1000 {
+            return "\(meters)m away"
+        } else {
+            let km = Double(meters) / 1000.0
+            return String(format: "%.1fkm away", km)
+        }
+    }
+}
+
+// MARK: - Alert Detail View
+
+struct AlertDetailView: View {
+    let alert: Alert
     @Environment(\.dismiss) var dismiss
-    @State private var title = ""
-    @State private var description = ""
-    @State private var severity: Int = 3
+    @StateObject private var alertsService = AlertsService.shared
+    @EnvironmentObject var authService: AuthService
+    @State private var showRespondSheet = false
+    @State private var showStatusSheet = false
+    @State private var refreshedAlert: Alert?
+
+    private var displayAlert: Alert {
+        refreshedAlert ?? alert
+    }
+
+    private var isAuthor: Bool {
+        displayAlert.authorId == authService.currentUser?.id
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Header with severity
+                    alertHeader
+
+                    Divider()
+
+                    // Description
+                    if let description = displayAlert.description, !description.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Details")
+                                .font(.headline)
+                            Text(description)
+                                .font(.body)
+                        }
+
+                        Divider()
+                    }
+
+                    // Location section
+                    locationSection
+
+                    Divider()
+
+                    // Response actions (if not author and alert is active)
+                    if !isAuthor && displayAlert.status == .active {
+                        responseSection
+                        Divider()
+                    }
+
+                    // Author controls (if author)
+                    if isAuthor && displayAlert.status == .active {
+                        authorControlsSection
+                        Divider()
+                    }
+
+                    // Responses list
+                    responsesSection
+                }
+                .padding()
+            }
+            .navigationTitle("Alert Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showRespondSheet) {
+                RespondToAlertSheet(alertId: displayAlert.id) {
+                    await refreshAlert()
+                }
+            }
+            .sheet(isPresented: $showStatusSheet) {
+                UpdateAlertStatusSheet(alert: displayAlert) {
+                    await refreshAlert()
+                }
+            }
+            .task {
+                await refreshAlert()
+            }
+        }
+    }
+
+    private var alertHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                // Severity badge
+                HStack(spacing: 6) {
+                    Image(systemName: severityIconName)
+                    Text(displayAlert.severityDisplayName)
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(severityColor)
+                .cornerRadius(8)
+
+                Spacer()
+
+                // Status badge
+                if displayAlert.status != .active {
+                    Text(displayAlert.status == .resolved ? "Resolved" : "False Alarm")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(displayAlert.status == .resolved ? .green : .gray)
+                }
+            }
+
+            Text(displayAlert.title)
+                .font(.title2.weight(.bold))
+
+            HStack {
+                Image(systemName: "clock")
+                Text(displayAlert.createdAt, style: .relative)
+                Text("ago")
+            }
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+        }
+    }
+
+    private var locationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Location")
+                .font(.headline)
+
+            if let locationName = displayAlert.locationName {
+                HStack {
+                    Image(systemName: "mappin.circle.fill")
+                        .foregroundColor(.red)
+                    Text(locationName)
+                }
+            }
+
+            // Mini map
+            Map(initialPosition: .region(MKCoordinateRegion(
+                center: displayAlert.location.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            ))) {
+                Marker(displayAlert.title, coordinate: displayAlert.location.coordinate)
+                    .tint(.red)
+            }
+            .frame(height: 150)
+            .cornerRadius(12)
+            .disabled(true)
+
+            // Broadcast radius info
+            HStack {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                Text("Broadcast radius: \(formatRadius(displayAlert.radiusMeters))")
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
+        }
+    }
+
+    private var responseSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Respond")
+                .font(.headline)
+
+            if let userResponse = displayAlert.userResponse {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text("You responded: \(userResponse.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)")
+                }
+                .font(.subheadline)
+            } else {
+                Text("Let them know you're coming to help")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    showRespondSheet = true
+                } label: {
+                    HStack {
+                        Image(systemName: "hand.raised.fill")
+                        Text("I Can Help")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+            }
+        }
+    }
+
+    private var authorControlsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Manage Alert")
+                .font(.headline)
+
+            Button {
+                showStatusSheet = true
+            } label: {
+                HStack {
+                    Image(systemName: "checkmark.circle")
+                    Text("Update Status")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private var responsesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Responses")
+                    .font(.headline)
+                Spacer()
+                Text("\(displayAlert.responseCount ?? displayAlert.responses?.count ?? 0)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            if let responses = displayAlert.responses, !responses.isEmpty {
+                ForEach(responses) { response in
+                    ResponseRowView(response: response)
+                }
+            } else {
+                Text("No responses yet")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 8)
+            }
+        }
+    }
+
+    private var severityColor: Color {
+        switch displayAlert.severity {
+        case 1: return .yellow
+        case 2: return .orange
+        case 3: return .red
+        default: return .gray
+        }
+    }
+
+    private var severityIconName: String {
+        switch displayAlert.severity {
+        case 1: return "info.circle.fill"
+        case 2: return "exclamationmark.circle.fill"
+        case 3: return "exclamationmark.triangle.fill"
+        default: return "questionmark.circle.fill"
+        }
+    }
+
+    private func formatRadius(_ meters: Int) -> String {
+        if meters < 1000 {
+            return "\(meters)m"
+        } else {
+            let km = Double(meters) / 1000.0
+            return String(format: "%.1fkm", km)
+        }
+    }
+
+    private func refreshAlert() async {
+        if let updated = await alertsService.getAlert(id: alert.id) {
+            refreshedAlert = updated
+        }
+    }
+}
+
+// MARK: - Response Row View
+
+struct ResponseRowView: View {
+    let response: AlertResponse
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: response.statusIcon)
+                .font(.title3)
+                .foregroundColor(statusColor)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(response.statusDisplayName)
+                    .font(.subheadline.weight(.medium))
+
+                if let eta = response.etaMinutes {
+                    Text("ETA: \(eta) min")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            Text(response.createdAt, style: .relative)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusColor: Color {
+        switch response.status {
+        case .acknowledged: return .blue
+        case .enRoute: return .orange
+        case .arrived: return .green
+        case .unable: return .gray
+        }
+    }
+}
+
+// MARK: - Respond to Alert Sheet
+
+struct RespondToAlertSheet: View {
+    let alertId: String
+    let onComplete: () async -> Void
+    @Environment(\.dismiss) var dismiss
+    @StateObject private var alertsService = AlertsService.shared
+    @State private var selectedStatus: AlertResponseStatus = .acknowledged
+    @State private var etaMinutes: Int = 10
+    @State private var includeETA: Bool = false
+    @State private var isSubmitting = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    VStack(spacing: 8) {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.orange)
+                        Text("Respond to Alert")
+                            .font(.title3.weight(.semibold))
+                        Text("Let them know you're coming to help")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical)
+                }
+
+                Section("Your Response") {
+                    Picker("Status", selection: $selectedStatus) {
+                        Label("Acknowledged", systemImage: "checkmark.circle")
+                            .tag(AlertResponseStatus.acknowledged)
+                        Label("On my way", systemImage: "figure.walk")
+                            .tag(AlertResponseStatus.enRoute)
+                        Label("Unable to help", systemImage: "xmark.circle")
+                            .tag(AlertResponseStatus.unable)
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+
+                if selectedStatus == .enRoute {
+                    Section("Estimated Time of Arrival") {
+                        Toggle("Include ETA", isOn: $includeETA)
+
+                        if includeETA {
+                            Stepper("\(etaMinutes) minutes", value: $etaMinutes, in: 1...120, step: 5)
+                        }
+                    }
+                }
+
+                Section {
+                    Text("Your current location may be shared to help coordinate the response.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("Respond")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send") {
+                        Task {
+                            await submitResponse()
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(isSubmitting)
+                }
+            }
+        }
+    }
+
+    private func submitResponse() async {
+        isSubmitting = true
+
+        let eta = (selectedStatus == .enRoute && includeETA) ? etaMinutes : nil
+        let success = await alertsService.respondToAlertWithLocation(
+            alertId: alertId,
+            status: selectedStatus,
+            etaMinutes: eta
+        )
+
+        if success {
+            await onComplete()
+            dismiss()
+        }
+
+        isSubmitting = false
+    }
+}
+
+// MARK: - Update Alert Status Sheet
+
+struct UpdateAlertStatusSheet: View {
+    let alert: Alert
+    let onComplete: () async -> Void
+    @Environment(\.dismiss) var dismiss
+    @StateObject private var alertsService = AlertsService.shared
+    @State private var selectedStatus: AlertStatus = .resolved
+    @State private var isSubmitting = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Update Status") {
+                    Picker("Status", selection: $selectedStatus) {
+                        Label("Mark as Resolved", systemImage: "checkmark.circle.fill")
+                            .tag(AlertStatus.resolved)
+                        Label("Mark as False Alarm", systemImage: "xmark.circle.fill")
+                            .tag(AlertStatus.falseAlarm)
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+
+                Section {
+                    if selectedStatus == .resolved {
+                        Text("This will notify all responders that the situation has been resolved.")
+                    } else {
+                        Text("This will mark the alert as a false alarm and notify responders.")
+                    }
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+            .navigationTitle("Update Alert")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Update") {
+                        Task {
+                            await updateStatus()
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(isSubmitting)
+                }
+            }
+        }
+    }
+
+    private func updateStatus() async {
+        isSubmitting = true
+
+        let success = await alertsService.updateAlertStatus(alertId: alert.id, status: selectedStatus)
+
+        if success {
+            await onComplete()
+            dismiss()
+        }
+
+        isSubmitting = false
+    }
+}
+
+// MARK: - Send SOS View
+
+struct SendSOSView: View {
+    @Environment(\.dismiss) var dismiss
+    @StateObject private var alertsService = AlertsService.shared
+    @StateObject private var locationManager = LocationManager()
+    @State private var title = ""
+    @State private var description = ""
+    @State private var severity: Int = 3
+    @State private var radiusKm: Double = 5.0
+    @State private var isSubmitting = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                // Header
                 Section {
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -1933,26 +3331,84 @@ struct SendSOSView: View {
                     .padding(.vertical)
                 }
 
+                // What's happening
                 Section("What's happening?") {
-                    TextField("Brief title", text: $title)
+                    TextField("Brief title (required)", text: $title)
                     TextField("Details (optional)", text: $description, axis: .vertical)
                         .lineLimit(2...4)
                 }
 
-                Section("Severity") {
-                    Picker("Severity Level", selection: $severity) {
-                        Text("Low").tag(1)
-                        Text("Medium").tag(2)
-                        Text("High").tag(3)
-                        Text("Critical").tag(4)
+                // Severity
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Severity Level")
+                            .font(.subheadline.weight(.medium))
+
+                        Picker("Severity", selection: $severity) {
+                            HStack {
+                                Image(systemName: "info.circle.fill")
+                                Text("Awareness")
+                            }.tag(1)
+                            HStack {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                Text("Help Needed")
+                            }.tag(2)
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                Text("Emergency")
+                            }.tag(3)
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text(severityDescription)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    .pickerStyle(.segmented)
                 }
 
-                Section("Location") {
-                    Text("Your current location will be shared")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
+                // Broadcast radius
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Broadcast Radius")
+                                .font(.subheadline.weight(.medium))
+                            Spacer()
+                            Text("\(Int(radiusKm)) km")
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(value: $radiusKm, in: 1...50, step: 1)
+                            .tint(.orange)
+
+                        Text("Alert will be sent to trusted members within \(Int(radiusKm)) km of your location")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Location
+                Section("Your Location") {
+                    if let location = locationManager.location {
+                        HStack {
+                            Image(systemName: "location.fill")
+                                .foregroundColor(.green)
+                            VStack(alignment: .leading) {
+                                Text("Location acquired")
+                                    .font(.subheadline)
+                                Text("\(location.coordinate.latitude, specifier: "%.4f"), \(location.coordinate.longitude, specifier: "%.4f")")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    } else {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Getting your location...")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
             }
             .navigationTitle("SOS Alert")
@@ -1963,15 +3419,67 @@ struct SendSOSView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Send SOS") {
-                        // TODO: Submit SOS alert
-                        dismiss()
+                        Task {
+                            await sendAlert()
+                        }
                     }
                     .foregroundColor(.red)
                     .fontWeight(.bold)
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!canSubmit || isSubmitting)
                 }
             }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage)
+            }
+            .onAppear {
+                locationManager.requestPermission()
+            }
         }
+    }
+
+    private var canSubmit: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        locationManager.location != nil
+    }
+
+    private var severityDescription: String {
+        switch severity {
+        case 1: return "General awareness - no immediate danger"
+        case 2: return "Help needed - assistance required"
+        case 3: return "Emergency - immediate help required"
+        default: return ""
+        }
+    }
+
+    private func sendAlert() async {
+        guard let location = locationManager.location else {
+            errorMessage = "Unable to get your location"
+            showError = true
+            return
+        }
+
+        isSubmitting = true
+
+        let response = await alertsService.createAlert(
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            description: description.isEmpty ? nil : description,
+            severity: severity,
+            latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude,
+            locationName: nil,
+            radiusMeters: Int(radiusKm * 1000)
+        )
+
+        if response != nil {
+            dismiss()
+        } else if let error = alertsService.error {
+            errorMessage = error
+            showError = true
+        }
+
+        isSubmitting = false
     }
 }
 
@@ -1979,9 +3487,18 @@ struct SettingsView: View {
     @EnvironmentObject var authService: AuthService
     @State private var showPanicConfirmation = false
     @State private var showRecoveryKey = false
+    @State private var navigationPath = NavigationPath()
+
+    enum SettingsDestination: Hashable {
+        case invites
+        case vouches
+        case topics
+        case locations
+        case quietHours
+    }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             List {
                 Section("Account") {
                     if let user = authService.currentUser {
@@ -1991,9 +3508,7 @@ struct SettingsView: View {
                 }
 
                 Section("Community") {
-                    NavigationLink {
-                        InvitesView()
-                    } label: {
+                    NavigationLink(value: SettingsDestination.invites) {
                         HStack {
                             Image(systemName: "envelope.badge.person.crop")
                                 .foregroundColor(.orange)
@@ -2011,9 +3526,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    NavigationLink {
-                        Text("Vouching coming soon...")
-                    } label: {
+                    NavigationLink(value: SettingsDestination.vouches) {
                         HStack {
                             Image(systemName: "person.badge.shield.checkmark")
                                 .foregroundColor(.orange)
@@ -2023,17 +3536,17 @@ struct SettingsView: View {
                 }
 
                 Section("Subscriptions") {
-                    NavigationLink("Topics") {
-                        Text("Topic subscriptions")
+                    NavigationLink(value: SettingsDestination.topics) {
+                        Text("Topics")
                     }
-                    NavigationLink("Locations") {
-                        Text("Location subscriptions")
+                    NavigationLink(value: SettingsDestination.locations) {
+                        Text("Locations")
                     }
                 }
 
                 Section("Notifications") {
-                    NavigationLink("Quiet Hours") {
-                        Text("Quiet hours settings")
+                    NavigationLink(value: SettingsDestination.quietHours) {
+                        Text("Quiet Hours")
                     }
                 }
 
@@ -2060,6 +3573,24 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .navigationDestination(for: SettingsDestination.self) { destination in
+                switch destination {
+                case .invites:
+                    InvitesView()
+                case .vouches:
+                    Text("Vouching coming soon...")
+                        .navigationTitle("Vouches")
+                case .topics:
+                    Text("Topic subscriptions")
+                        .navigationTitle("Topics")
+                case .locations:
+                    Text("Location subscriptions")
+                        .navigationTitle("Locations")
+                case .quietHours:
+                    Text("Quiet hours settings")
+                        .navigationTitle("Quiet Hours")
+                }
+            }
             .alert("Panic Wipe", isPresented: $showPanicConfirmation) {
                 Button("Cancel", role: .cancel) {}
                 Button("Wipe Everything", role: .destructive) {
