@@ -18,7 +18,7 @@ Kuurier solves this:
 - **See the world** — A global map showing activist activity in real-time. Zoom into any hotspot.
 - **Organize events** — Create and discover protests, strikes, fundraisers, mutual aid.
 - **Emergency alerts** — SOS system for when help is needed. Trusted activists can broadcast to nearby users.
-- **Web of trust** — Build credibility through community vouching, not corporate verification.
+- **Web of trust** — Build credibility through community vouching.
 
 ---
 
