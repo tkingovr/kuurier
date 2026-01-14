@@ -455,7 +455,7 @@ struct OrgSettingsView: View {
                 LabeledContent("Minimum Admins", value: "\(governanceInfo?.minAdmins ?? 1)")
             }
 
-            Section("Admin Actions") {
+            Section {
                 Button(action: { showTransferAdmin = true }) {
                     Label("Transfer Admin Role", systemImage: "person.badge.key")
                 }
@@ -463,6 +463,8 @@ struct OrgSettingsView: View {
                 NavigationLink(destination: Text("Manage Members - Coming Soon")) {
                     Label("Manage Members", systemImage: "person.2")
                 }
+            } header: {
+                Text("Admin Actions")
             } footer: {
                 Text("Transferring admin role allows another member to help manage the organization. You will remain an admin unless you demote yourself.")
             }
@@ -477,10 +479,12 @@ struct OrgSettingsView: View {
         .sheet(isPresented: $showTransferAdmin) {
             NavigationStack {
                 Form {
-                    Section("Transfer Admin Role") {
+                    Section {
                         TextField("User ID", text: $transferUserId)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
+                    } header: {
+                        Text("Transfer Admin Role")
                     } footer: {
                         Text("Enter the user ID of the member you want to promote to admin. They will receive a request to accept.")
                     }

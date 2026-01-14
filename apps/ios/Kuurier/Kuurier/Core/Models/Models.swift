@@ -289,6 +289,45 @@ struct Alert: Codable, Identifiable {
     let responses: [AlertResponse]?
     let userResponse: AlertResponseStatus?
     let distanceMeters: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case authorId = "author_id"
+        case title
+        case description
+        case severity
+        case severityLabel = "severity_label"
+        case location
+        case locationName = "location_name"
+        case radiusMeters = "radius_meters"
+        case status
+        case createdAt = "created_at"
+        case resolvedAt = "resolved_at"
+        case responseCount = "response_count"
+        case responses
+        case userResponse = "user_response"
+        case distanceMeters = "distance_meters"
+    }
+
+    /// Returns a human-readable severity label
+    var severityDisplayName: String {
+        switch severity {
+        case 1: return "Awareness"
+        case 2: return "Help Needed"
+        case 3: return "Emergency"
+        default: return "Unknown"
+        }
+    }
+
+    /// Returns the color for this severity level
+    var severityColor: String {
+        switch severity {
+        case 1: return "yellow"
+        case 2: return "orange"
+        case 3: return "red"
+        default: return "gray"
+        }
+    }
 }
 
 enum AlertStatus: String, Codable {
@@ -297,11 +336,40 @@ enum AlertStatus: String, Codable {
     case falseAlarm = "false_alarm"
 }
 
-struct AlertResponse: Codable {
+struct AlertResponse: Codable, Identifiable {
     let userId: String
     let status: AlertResponseStatus
     let etaMinutes: Int?
     let createdAt: Date
+
+    var id: String { "\(userId)-\(createdAt.timeIntervalSince1970)" }
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case status
+        case etaMinutes = "eta_minutes"
+        case createdAt = "created_at"
+    }
+
+    /// Returns human-readable status
+    var statusDisplayName: String {
+        switch status {
+        case .acknowledged: return "Acknowledged"
+        case .enRoute: return "On the way"
+        case .arrived: return "Arrived"
+        case .unable: return "Unable to help"
+        }
+    }
+
+    /// Returns icon for the status
+    var statusIcon: String {
+        switch status {
+        case .acknowledged: return "checkmark.circle"
+        case .enRoute: return "figure.walk"
+        case .arrived: return "mappin.circle.fill"
+        case .unable: return "xmark.circle"
+        }
+    }
 }
 
 enum AlertResponseStatus: String, Codable {
