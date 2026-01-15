@@ -8,30 +8,51 @@ struct KuurierApp: App {
 
     @StateObject private var authService = AuthService.shared
     @StateObject private var pushService = PushNotificationService.shared
+    @StateObject private var appLockService = AppLockService.shared
 
     // Detect shake gesture for panic button
     @Environment(\.scenePhase) var scenePhase
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(authService)
-                .environmentObject(pushService)
-                .preferredColorScheme(.dark) // Default to dark mode for privacy
-                .onReceive(NotificationCenter.default.publisher(for: .deviceDidShake)) { _ in
-                    // Triple shake triggers panic mode confirmation
-                    // Implement shake detection in a real app
+            ZStack {
+                ContentView()
+                    .environmentObject(authService)
+                    .environmentObject(pushService)
+                    .environmentObject(appLockService)
+
+                // Show PIN entry when app is locked
+                if appLockService.isLocked {
+                    PINEntryView()
+                        .transition(.opacity)
+                        .zIndex(1)
                 }
-                .onChange(of: scenePhase) { newPhase in
-                    if newPhase == .active {
-                        // Re-register push token when app becomes active (after login)
-                        if authService.isAuthenticated {
-                            Task {
-                                await pushService.reregisterAfterLogin()
-                            }
+            }
+            .preferredColorScheme(.dark) // Default to dark mode for privacy
+            .onReceive(NotificationCenter.default.publisher(for: .deviceDidShake)) { _ in
+                // Triple shake triggers panic mode confirmation
+                // Implement shake detection in a real app
+            }
+            .onChange(of: scenePhase) { oldPhase, newPhase in
+                switch newPhase {
+                case .active:
+                    // Check if we need to lock based on timeout
+                    appLockService.appWillEnterForeground()
+
+                    // Re-register push token when app becomes active (after login)
+                    if authService.isAuthenticated && !appLockService.isLocked {
+                        Task {
+                            await pushService.reregisterAfterLogin()
                         }
                     }
+                case .background:
+                    appLockService.appDidEnterBackground()
+                case .inactive:
+                    break
+                @unknown default:
+                    break
                 }
+            }
         }
     }
 }
