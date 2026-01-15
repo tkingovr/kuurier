@@ -517,6 +517,12 @@ struct UserProfile: Codable, Identifiable {
     }
 }
 
+struct UserSearchResponse: Codable {
+    let users: [UserProfile]
+    let query: String
+    let count: Int
+}
+
 // MARK: - Vouches
 
 struct Vouch: Codable, Identifiable {

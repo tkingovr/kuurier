@@ -3492,6 +3492,7 @@ struct SettingsView: View {
     enum SettingsDestination: Hashable {
         case invites
         case vouches
+        case userSearch
         case topics
         case locations
         case quietHours
@@ -3531,6 +3532,14 @@ struct SettingsView: View {
                             Image(systemName: "person.badge.shield.checkmark")
                                 .foregroundColor(.orange)
                             Text("Vouches")
+                        }
+                    }
+
+                    NavigationLink(value: SettingsDestination.userSearch) {
+                        HStack {
+                            Image(systemName: "magnifyingglass.circle")
+                                .foregroundColor(.orange)
+                            Text("Find Users")
                         }
                     }
                 }
@@ -3579,6 +3588,8 @@ struct SettingsView: View {
                     InvitesView()
                 case .vouches:
                     VouchesView()
+                case .userSearch:
+                    UserSearchView()
                 case .topics:
                     TopicSubscriptionsView()
                 case .locations:
@@ -4753,6 +4764,149 @@ struct QuietHoursView: View {
                 isActive = false
                 hasChanges = false
             }
+        }
+    }
+}
+
+// MARK: - User Search View
+
+struct UserSearchView: View {
+    @StateObject private var settingsService = SettingsService.shared
+    @State private var searchText = ""
+    @State private var searchResults: [UserProfile] = []
+    @State private var isSearching = false
+    @State private var hasSearched = false
+
+    var body: some View {
+        List {
+            if !hasSearched {
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Search for Users")
+                            .font(.headline)
+                        Text("Enter at least 3 characters of a user's ID to search. User IDs are anonymous identifiers like \"a1b2c3d4-...\"")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+
+            if isSearching {
+                HStack {
+                    Spacer()
+                    ProgressView("Searching...")
+                    Spacer()
+                }
+            } else if hasSearched {
+                if searchResults.isEmpty {
+                    Section {
+                        ContentUnavailableView(
+                            "No Users Found",
+                            systemImage: "person.slash",
+                            description: Text("No users match \"\(searchText)\". Try a different search.")
+                        )
+                    }
+                } else {
+                    Section("Results (\(searchResults.count))") {
+                        ForEach(searchResults) { user in
+                            NavigationLink(destination: UserProfileView(userId: user.id)) {
+                                UserSearchResultRow(user: user)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Find Users")
+        .searchable(text: $searchText, prompt: "Search by user ID...")
+        .onSubmit(of: .search) {
+            Task {
+                await performSearch()
+            }
+        }
+        .onChange(of: searchText) { _, newValue in
+            if newValue.isEmpty {
+                hasSearched = false
+                searchResults = []
+            }
+        }
+    }
+
+    private func performSearch() async {
+        guard searchText.count >= 3 else { return }
+
+        isSearching = true
+        searchResults = await settingsService.searchUsers(query: searchText)
+        hasSearched = true
+        isSearching = false
+    }
+}
+
+struct UserSearchResultRow: View {
+    let user: UserProfile
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Avatar
+            ZStack {
+                Circle()
+                    .fill(Color.orange.opacity(0.2))
+                    .frame(width: 44, height: 44)
+                Text(String(user.id.prefix(2)).uppercased())
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.orange)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(user.id.prefix(12) + "...")
+                        .font(.system(.body, design: .monospaced))
+                        .lineLimit(1)
+
+                    if user.isVerified {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Label("\(user.trustScore)", systemImage: "shield.fill")
+                        .font(.caption)
+                        .foregroundColor(trustColor(for: user.trustScore))
+
+                    Label("\(user.vouchCount)", systemImage: "person.badge.shield.checkmark")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            if user.hasVouched {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.caption)
+            } else if user.canVouch {
+                Image(systemName: "hand.thumbsup")
+                    .foregroundColor(.orange)
+                    .font(.caption)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func trustColor(for score: Int) -> Color {
+        if score >= 100 {
+            return .green
+        } else if score >= 50 {
+            return .blue
+        } else if score >= 30 {
+            return .orange
+        } else {
+            return .secondary
         }
     }
 }

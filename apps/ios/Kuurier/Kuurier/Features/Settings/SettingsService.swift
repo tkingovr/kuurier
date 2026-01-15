@@ -219,6 +219,23 @@ final class SettingsService: ObservableObject {
             return nil
         }
     }
+
+    /// Searches for users by ID prefix
+    @MainActor
+    func searchUsers(query: String, limit: Int = 20) async -> [UserProfile] {
+        guard query.count >= 3 else { return [] }
+
+        do {
+            let response: UserSearchResponse = try await api.get("/users", queryItems: [
+                URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "limit", value: String(limit))
+            ])
+            return response.users
+        } catch {
+            self.error = error.localizedDescription
+            return []
+        }
+    }
 }
 
 // MARK: - Request Types
