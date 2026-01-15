@@ -1,30 +1,48 @@
 import Foundation
+import CryptoKit
+import Security
 
 /// Secure API client with certificate pinning and automatic token refresh
-final class APIClient {
+final class APIClient: NSObject, URLSessionDelegate {
 
     static let shared = APIClient()
 
-    private let session: URLSession
-    let baseURL: URL
-    private let decoder: JSONDecoder
-    private let encoder: JSONEncoder
+    private var _session: URLSession?
+    private var session: URLSession {
+        if let existing = _session {
+            return existing
+        }
 
-    private init() {
-        // Configure URL session
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = AppConfig.apiRequestTimeout
         config.timeoutIntervalForResource = AppConfig.apiResourceTimeout
         config.waitsForConnectivity = true
 
-        // TODO: Implement URLSessionDelegate for certificate pinning in production
-        self.session = URLSession(configuration: config)
+        let newSession: URLSession
+        if AppConfig.enableCertificatePinning {
+            newSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        } else {
+            newSession = URLSession(configuration: config)
+        }
 
-        // Use URL from AppConfig (see Core/Config/AppConfig.swift)
+        _session = newSession
+        return newSession
+    }
+
+    let baseURL: URL
+    private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
+
+    private override init() {
         self.baseURL = AppConfig.apiBaseURL
 
         self.decoder = JSONDecoder()
-        self.decoder.dateDecodingStrategy = .custom { decoder in
+        self.encoder = JSONEncoder()
+
+        super.init()
+
+        // Configure decoder
+        decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let dateString = try container.decode(String.self)
 
@@ -44,11 +62,74 @@ final class APIClient {
 
             throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date: \(dateString)")
         }
-        // Note: Not using .convertFromSnakeCase since models have explicit CodingKeys
 
-        self.encoder = JSONEncoder()
-        self.encoder.dateEncodingStrategy = .iso8601
-        self.encoder.keyEncodingStrategy = .convertToSnakeCase
+        // Configure encoder
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+    }
+
+    // MARK: - Certificate Pinning
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let serverTrust = challenge.protectionSpace.serverTrust,
+              let serverCertificate = SecTrustGetCertificateAtIndex(serverTrust, 0) else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+
+        let host = challenge.protectionSpace.host
+
+        // Only pin for configured hosts
+        guard AppConfig.pinnedHosts.contains(host) else {
+            // Allow other hosts without pinning
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+
+        // Extract public key from certificate
+        guard let serverPublicKey = SecCertificateCopyKey(serverCertificate),
+              let serverPublicKeyData = SecKeyCopyExternalRepresentation(serverPublicKey, nil) as Data? else {
+            if AppConfig.enableDebugLogging {
+                print("[CertPinning] Failed to extract public key from certificate")
+            }
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+
+        // Hash the public key (SPKI)
+        let serverKeyHash = sha256Hash(of: serverPublicKeyData)
+
+        // Check if the hash matches any of our pinned keys
+        let isPinned = AppConfig.pinnedPublicKeyHashes.contains(serverKeyHash)
+
+        if isPinned {
+            // Certificate is pinned - allow the connection
+            let credential = URLCredential(trust: serverTrust)
+            completionHandler(.useCredential, credential)
+
+            if AppConfig.enableDebugLogging {
+                print("[CertPinning] Certificate validated for host: \(host)")
+            }
+        } else {
+            // Certificate not pinned - reject the connection
+            if AppConfig.enableDebugLogging {
+                print("[CertPinning] Certificate pinning failed for host: \(host)")
+                print("[CertPinning] Server key hash: \(serverKeyHash)")
+                print("[CertPinning] Expected one of: \(AppConfig.pinnedPublicKeyHashes)")
+            }
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+    }
+
+    /// Computes SHA256 hash of data and returns base64-encoded string
+    private func sha256Hash(of data: Data) -> String {
+        let hash = SHA256.hash(data: data)
+        return Data(hash).base64EncodedString()
     }
 
     // MARK: - Request Methods
@@ -133,7 +214,17 @@ final class APIClient {
     // MARK: - Request Execution
 
     private func execute<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await session.data(for: request)
+        let (data, response): (Data, URLResponse)
+
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as NSError {
+            // Check for certificate pinning failure
+            if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
+                throw APIError.certificatePinningFailed
+            }
+            throw APIError.networkError(error)
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
@@ -197,6 +288,7 @@ enum APIError: Error, LocalizedError {
     case httpError(Int, String)
     case decodingFailed(Error)
     case networkError(Error)
+    case certificatePinningFailed
 
     var errorDescription: String? {
         switch self {
@@ -220,6 +312,8 @@ enum APIError: Error, LocalizedError {
             return "Failed to parse response: \(error.localizedDescription)"
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
+        case .certificatePinningFailed:
+            return "Security error: Unable to verify server identity"
         }
     }
 }
