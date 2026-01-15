@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -349,6 +350,153 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 		"is_verified": isVerified,
 		"created_at":  createdAt,
 		"vouch_count": vouchCount,
+	})
+}
+
+// GetUserProfile returns another user's public profile
+// GET /users/:user_id
+func (h *Handler) GetUserProfile(c *gin.Context) {
+	requestingUserID := c.GetString("user_id")
+	targetUserID := c.Param("user_id")
+
+	ctx := c.Request.Context()
+
+	// Get target user's info
+	var trustScore int
+	var isVerified bool
+	var createdAt time.Time
+
+	err := h.db.Pool().QueryRow(ctx,
+		"SELECT trust_score, is_verified, created_at FROM users WHERE id = $1",
+		targetUserID,
+	).Scan(&trustScore, &isVerified, &createdAt)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	// Count vouches received
+	var vouchCount int
+	h.db.Pool().QueryRow(ctx,
+		"SELECT COUNT(*) FROM vouches WHERE vouchee_id = $1",
+		targetUserID,
+	).Scan(&vouchCount)
+
+	// Check if current user has vouched for this user
+	var hasVouched bool
+	h.db.Pool().QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM vouches WHERE voucher_id = $1 AND vouchee_id = $2)",
+		requestingUserID, targetUserID,
+	).Scan(&hasVouched)
+
+	// Check if current user can vouch (trust >= 30)
+	var requestingUserTrust int
+	h.db.Pool().QueryRow(ctx,
+		"SELECT trust_score FROM users WHERE id = $1",
+		requestingUserID,
+	).Scan(&requestingUserTrust)
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":          targetUserID,
+		"trust_score": trustScore,
+		"is_verified": isVerified,
+		"created_at":  createdAt,
+		"vouch_count": vouchCount,
+		"has_vouched": hasVouched,
+		"can_vouch":   requestingUserTrust >= 30 && !hasVouched && requestingUserID != targetUserID,
+	})
+}
+
+// SearchUsers searches for users by ID prefix
+// GET /users?q=<query>&limit=<limit>
+func (h *Handler) SearchUsers(c *gin.Context) {
+	requestingUserID := c.GetString("user_id")
+	query := c.Query("q")
+	limitStr := c.DefaultQuery("limit", "20")
+
+	// Require at least 3 characters for search
+	if len(query) < 3 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "search query must be at least 3 characters"})
+		return
+	}
+
+	limit := 20
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
+		limit = l
+	}
+
+	ctx := c.Request.Context()
+
+	// Search by ID prefix (case-insensitive)
+	rows, err := h.db.Pool().Query(ctx,
+		`SELECT id, trust_score, is_verified, created_at,
+		        (SELECT COUNT(*) FROM vouches WHERE vouchee_id = u.id) as vouch_count
+		 FROM users u
+		 WHERE LOWER(id) LIKE LOWER($1 || '%')
+		 ORDER BY trust_score DESC, created_at ASC
+		 LIMIT $2`,
+		query, limit,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "search failed"})
+		return
+	}
+	defer rows.Close()
+
+	// Get requesting user's trust score for can_vouch calculation
+	var requestingUserTrust int
+	h.db.Pool().QueryRow(ctx,
+		"SELECT trust_score FROM users WHERE id = $1",
+		requestingUserID,
+	).Scan(&requestingUserTrust)
+
+	// Get list of users the requesting user has vouched for
+	vouchedFor := make(map[string]bool)
+	vouchRows, _ := h.db.Pool().Query(ctx,
+		"SELECT vouchee_id FROM vouches WHERE voucher_id = $1",
+		requestingUserID,
+	)
+	if vouchRows != nil {
+		defer vouchRows.Close()
+		for vouchRows.Next() {
+			var voucheeID string
+			if err := vouchRows.Scan(&voucheeID); err == nil {
+				vouchedFor[voucheeID] = true
+			}
+		}
+	}
+
+	var results []gin.H
+	for rows.Next() {
+		var id string
+		var trustScore int
+		var isVerified bool
+		var createdAt time.Time
+		var vouchCount int
+
+		if err := rows.Scan(&id, &trustScore, &isVerified, &createdAt, &vouchCount); err != nil {
+			continue
+		}
+
+		hasVouched := vouchedFor[id]
+		canVouch := requestingUserTrust >= 30 && !hasVouched && requestingUserID != id
+
+		results = append(results, gin.H{
+			"id":          id,
+			"trust_score": trustScore,
+			"is_verified": isVerified,
+			"created_at":  createdAt,
+			"vouch_count": vouchCount,
+			"has_vouched": hasVouched,
+			"can_vouch":   canVouch,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"users": results,
+		"query": query,
+		"count": len(results),
 	})
 }
 

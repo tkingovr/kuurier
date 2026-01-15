@@ -94,6 +94,10 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 			protected.POST("/vouch/:user_id", authHandler.Vouch)
 			protected.GET("/vouches", authHandler.GetVouches)
 
+			// User profile routes
+			protected.GET("/users", authHandler.SearchUsers)            // Search users by ID prefix
+			protected.GET("/users/:user_id", authHandler.GetUserProfile) // Get specific user profile
+
 			// Invite routes (requires trust 30+)
 			inviteRoutes := protected.Group("/invites")
 			{
@@ -248,6 +252,9 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				pushRoutes.POST("/token", pushHandler.RegisterToken)
 				pushRoutes.DELETE("/token", pushHandler.UnregisterToken)
 				pushRoutes.GET("/tokens", pushHandler.GetTokens)
+				pushRoutes.GET("/quiet-hours", pushHandler.GetQuietHours)
+				pushRoutes.PUT("/quiet-hours", pushHandler.SetQuietHours)
+				pushRoutes.DELETE("/quiet-hours", pushHandler.DeleteQuietHours)
 			}
 
 			// WebSocket endpoint for real-time messaging
