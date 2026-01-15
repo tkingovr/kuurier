@@ -3578,17 +3578,13 @@ struct SettingsView: View {
                 case .invites:
                     InvitesView()
                 case .vouches:
-                    Text("Vouching coming soon...")
-                        .navigationTitle("Vouches")
+                    VouchesView()
                 case .topics:
-                    Text("Topic subscriptions")
-                        .navigationTitle("Topics")
+                    TopicSubscriptionsView()
                 case .locations:
-                    Text("Location subscriptions")
-                        .navigationTitle("Locations")
+                    LocationSubscriptionsView()
                 case .quietHours:
-                    Text("Quiet hours settings")
-                        .navigationTitle("Quiet Hours")
+                    QuietHoursView()
                 }
             }
             .alert("Panic Wipe", isPresented: $showPanicConfirmation) {
@@ -4125,6 +4121,635 @@ struct FeatureRow: View {
                 Text(description)
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: - Vouches View
+
+struct VouchesView: View {
+    @StateObject private var settingsService = SettingsService.shared
+    @EnvironmentObject var authService: AuthService
+
+    var body: some View {
+        List {
+            Section {
+                if let user = authService.currentUser {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Your Trust Score")
+                            .font(.headline)
+                        HStack {
+                            Text("\(user.trustScore)")
+                                .font(.system(size: 48, weight: .bold))
+                                .foregroundColor(.orange)
+                            VStack(alignment: .leading) {
+                                Text("Each vouch adds +10 points")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                if user.trustScore < 30 {
+                                    Text("Need 30 to vouch for others")
+                                        .font(.caption)
+                                        .foregroundColor(.orange)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+
+            Section("Vouches Received (\(settingsService.vouchesReceived.count))") {
+                if settingsService.isLoadingVouches {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                } else if settingsService.vouchesReceived.isEmpty {
+                    Text("No vouches received yet")
+                        .foregroundColor(.secondary)
+                        .italic()
+                } else {
+                    ForEach(settingsService.vouchesReceived) { vouch in
+                        VouchRow(userId: vouch.userId, date: vouch.createdAt, direction: .received)
+                    }
+                }
+            }
+
+            Section("Vouches Given (\(settingsService.vouchesGiven.count))") {
+                if settingsService.vouchesGiven.isEmpty && !settingsService.isLoadingVouches {
+                    Text("You haven't vouched for anyone yet")
+                        .foregroundColor(.secondary)
+                        .italic()
+                } else {
+                    ForEach(settingsService.vouchesGiven) { vouch in
+                        VouchRow(userId: vouch.userId, date: vouch.createdAt, direction: .given)
+                    }
+                }
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("How Vouching Works")
+                        .font(.headline)
+                    Text("Vouching is how trust spreads in Kuurier. When you vouch for someone, you're saying you trust them. Each vouch increases their trust score by 10 points.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("You need a trust score of 30 to vouch for others.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .navigationTitle("Vouches")
+        .refreshable {
+            await settingsService.fetchVouches()
+        }
+        .task {
+            await settingsService.fetchVouches()
+        }
+    }
+}
+
+struct VouchRow: View {
+    let userId: String
+    let date: Date
+    let direction: VouchDirection
+
+    enum VouchDirection {
+        case received
+        case given
+
+        var icon: String {
+            switch self {
+            case .received: return "arrow.down.circle.fill"
+            case .given: return "arrow.up.circle.fill"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .received: return .green
+            case .given: return .blue
+            }
+        }
+    }
+
+    var body: some View {
+        HStack {
+            Image(systemName: direction.icon)
+                .foregroundColor(direction.color)
+
+            VStack(alignment: .leading) {
+                Text(userId.prefix(8) + "...")
+                    .font(.system(.body, design: .monospaced))
+                Text(date, style: .relative)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Text(direction == .received ? "+10" : "")
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.green)
+        }
+    }
+}
+
+// MARK: - Topic Subscriptions View
+
+struct TopicSubscriptionsView: View {
+    @StateObject private var settingsService = SettingsService.shared
+    @State private var showAddSubscription = false
+
+    var topicSubscriptions: [Subscription] {
+        settingsService.subscriptions.filter { $0.topic != nil }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(topicSubscriptions) { subscription in
+                    SubscriptionRow(subscription: subscription)
+                }
+                .onDelete(perform: deleteSubscriptions)
+
+                if topicSubscriptions.isEmpty && !settingsService.isLoadingSubscriptions {
+                    Text("No topic subscriptions")
+                        .foregroundColor(.secondary)
+                        .italic()
+                }
+            }
+
+            Section {
+                Button(action: { showAddSubscription = true }) {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundColor(.orange)
+                        Text("Add Topic Subscription")
+                    }
+                }
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("About Topic Subscriptions")
+                        .font(.headline)
+                    Text("Subscribe to topics you care about to get notified when new posts are created. You can set the minimum urgency level and how often you want to receive updates.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .navigationTitle("Topics")
+        .refreshable {
+            await settingsService.fetchSubscriptions()
+            await settingsService.fetchTopics()
+        }
+        .task {
+            await settingsService.fetchSubscriptions()
+            await settingsService.fetchTopics()
+        }
+        .sheet(isPresented: $showAddSubscription) {
+            AddTopicSubscriptionView(settingsService: settingsService)
+        }
+    }
+
+    private func deleteSubscriptions(at offsets: IndexSet) {
+        Task {
+            for index in offsets {
+                let subscription = topicSubscriptions[index]
+                await settingsService.deleteSubscription(id: subscription.id)
+            }
+        }
+    }
+}
+
+struct SubscriptionRow: View {
+    let subscription: Subscription
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                if let topic = subscription.topic {
+                    if let icon = topic.icon {
+                        Text(icon)
+                    }
+                    Text(topic.name)
+                        .fontWeight(.medium)
+                } else if subscription.location != nil {
+                    Image(systemName: "location.fill")
+                        .foregroundColor(.blue)
+                    Text("Location: \(subscription.radiusMeters ?? 0)m radius")
+                        .fontWeight(.medium)
+                }
+
+                Spacer()
+
+                if !subscription.isActive {
+                    Text("Paused")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(4)
+                }
+            }
+
+            HStack {
+                Label("Urgency \(subscription.minUrgency)+", systemImage: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Text(subscription.digestMode.rawValue.capitalized)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct AddTopicSubscriptionView: View {
+    @Environment(\.dismiss) var dismiss
+    @ObservedObject var settingsService: SettingsService
+    @State private var selectedTopic: Topic?
+    @State private var minUrgency = 1
+    @State private var digestMode: DigestMode = .realtime
+    @State private var isSaving = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Select Topic") {
+                    if settingsService.topics.isEmpty {
+                        Text("Loading topics...")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(settingsService.topics) { topic in
+                            Button(action: { selectedTopic = topic }) {
+                                HStack {
+                                    if let icon = topic.icon {
+                                        Text(icon)
+                                    }
+                                    Text(topic.name)
+                                    Spacer()
+                                    if selectedTopic?.id == topic.id {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(.orange)
+                                    }
+                                }
+                            }
+                            .foregroundColor(.primary)
+                        }
+                    }
+                }
+
+                Section("Minimum Urgency") {
+                    Picker("Urgency Level", selection: $minUrgency) {
+                        Text("All (1+)").tag(1)
+                        Text("Medium (2+)").tag(2)
+                        Text("High Only (3)").tag(3)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("Notification Frequency") {
+                    Picker("Digest Mode", selection: $digestMode) {
+                        Text("Real-time").tag(DigestMode.realtime)
+                        Text("Daily").tag(DigestMode.daily)
+                        Text("Weekly").tag(DigestMode.weekly)
+                    }
+                }
+            }
+            .navigationTitle("Add Subscription")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            isSaving = true
+                            let success = await settingsService.createSubscription(
+                                topicId: selectedTopic?.id,
+                                location: nil,
+                                radiusMeters: nil,
+                                minUrgency: minUrgency,
+                                digestMode: digestMode
+                            )
+                            isSaving = false
+                            if success {
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(selectedTopic == nil || isSaving)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Location Subscriptions View
+
+struct LocationSubscriptionsView: View {
+    @StateObject private var settingsService = SettingsService.shared
+    @State private var showAddLocation = false
+
+    var locationSubscriptions: [Subscription] {
+        settingsService.subscriptions.filter { $0.location != nil }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(locationSubscriptions) { subscription in
+                    SubscriptionRow(subscription: subscription)
+                }
+                .onDelete(perform: deleteSubscriptions)
+
+                if locationSubscriptions.isEmpty && !settingsService.isLoadingSubscriptions {
+                    Text("No location subscriptions")
+                        .foregroundColor(.secondary)
+                        .italic()
+                }
+            }
+
+            Section {
+                Button(action: { showAddLocation = true }) {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundColor(.orange)
+                        Text("Add Location Subscription")
+                    }
+                }
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("About Location Subscriptions")
+                        .font(.headline)
+                    Text("Subscribe to locations to get notified about activity within a specific radius. Great for monitoring activity near your home, workplace, or areas of interest.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .navigationTitle("Locations")
+        .refreshable {
+            await settingsService.fetchSubscriptions()
+        }
+        .task {
+            await settingsService.fetchSubscriptions()
+        }
+        .sheet(isPresented: $showAddLocation) {
+            AddLocationSubscriptionView(settingsService: settingsService)
+        }
+    }
+
+    private func deleteSubscriptions(at offsets: IndexSet) {
+        Task {
+            for index in offsets {
+                let subscription = locationSubscriptions[index]
+                await settingsService.deleteSubscription(id: subscription.id)
+            }
+        }
+    }
+}
+
+struct AddLocationSubscriptionView: View {
+    @Environment(\.dismiss) var dismiss
+    @ObservedObject var settingsService: SettingsService
+    @State private var radiusKm = 5.0
+    @State private var minUrgency = 1
+    @State private var digestMode: DigestMode = .realtime
+    @State private var isSaving = false
+    @State private var useCurrentLocation = true
+    @State private var manualLatitude = ""
+    @State private var manualLongitude = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Location") {
+                    Toggle("Use Current Location", isOn: $useCurrentLocation)
+
+                    if !useCurrentLocation {
+                        TextField("Latitude", text: $manualLatitude)
+                            .keyboardType(.decimalPad)
+                        TextField("Longitude", text: $manualLongitude)
+                            .keyboardType(.decimalPad)
+                    }
+                }
+
+                Section("Radius") {
+                    VStack(alignment: .leading) {
+                        Text("Radius: \(Int(radiusKm)) km")
+                        Slider(value: $radiusKm, in: 1...50, step: 1)
+                    }
+                }
+
+                Section("Minimum Urgency") {
+                    Picker("Urgency Level", selection: $minUrgency) {
+                        Text("All (1+)").tag(1)
+                        Text("Medium (2+)").tag(2)
+                        Text("High Only (3)").tag(3)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("Notification Frequency") {
+                    Picker("Digest Mode", selection: $digestMode) {
+                        Text("Real-time").tag(DigestMode.realtime)
+                        Text("Daily").tag(DigestMode.daily)
+                        Text("Weekly").tag(DigestMode.weekly)
+                    }
+                }
+            }
+            .navigationTitle("Add Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            isSaving = true
+                            // For now, use placeholder coordinates (in a real app, get from location manager)
+                            let location: Location?
+                            if useCurrentLocation {
+                                // Use a default location for now
+                                location = Location(latitude: 40.7128, longitude: -74.0060)
+                            } else if let lat = Double(manualLatitude), let lng = Double(manualLongitude) {
+                                location = Location(latitude: lat, longitude: lng)
+                            } else {
+                                location = nil
+                            }
+
+                            let success = await settingsService.createSubscription(
+                                topicId: nil,
+                                location: location,
+                                radiusMeters: Int(radiusKm * 1000),
+                                minUrgency: minUrgency,
+                                digestMode: digestMode
+                            )
+                            isSaving = false
+                            if success {
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(isSaving)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Quiet Hours View
+
+struct QuietHoursView: View {
+    @StateObject private var settingsService = SettingsService.shared
+    @State private var isActive = false
+    @State private var startTime = Date()
+    @State private var endTime = Date()
+    @State private var allowEmergency = true
+    @State private var isSaving = false
+    @State private var hasChanges = false
+
+    private let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Enable Quiet Hours", isOn: $isActive)
+                    .onChange(of: isActive) { _, _ in hasChanges = true }
+            }
+
+            if isActive {
+                Section("Schedule") {
+                    DatePicker("Start Time", selection: $startTime, displayedComponents: .hourAndMinute)
+                        .onChange(of: startTime) { _, _ in hasChanges = true }
+
+                    DatePicker("End Time", selection: $endTime, displayedComponents: .hourAndMinute)
+                        .onChange(of: endTime) { _, _ in hasChanges = true }
+                }
+
+                Section("Exceptions") {
+                    Toggle("Allow Emergency Alerts", isOn: $allowEmergency)
+                        .onChange(of: allowEmergency) { _, _ in hasChanges = true }
+
+                    Text("Emergency alerts (SOS) will still come through during quiet hours")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("About Quiet Hours")
+                        .font(.headline)
+                    Text("During quiet hours, you won't receive push notifications except for emergency alerts (if enabled). Messages will still be delivered and visible when you open the app.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+
+            if hasChanges {
+                Section {
+                    Button(action: saveQuietHours) {
+                        HStack {
+                            Spacer()
+                            if isSaving {
+                                ProgressView()
+                            } else {
+                                Text("Save Changes")
+                                    .fontWeight(.semibold)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(isSaving)
+                }
+            }
+
+            if settingsService.quietHours?.configured == true {
+                Section {
+                    Button(role: .destructive, action: deleteQuietHours) {
+                        HStack {
+                            Spacer()
+                            Text("Delete Quiet Hours")
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Quiet Hours")
+        .task {
+            await settingsService.fetchQuietHours()
+            loadFromSettings()
+        }
+    }
+
+    private func loadFromSettings() {
+        guard let qh = settingsService.quietHours else { return }
+
+        isActive = qh.isActive
+        allowEmergency = qh.allowEmergency
+
+        // Parse time strings
+        if let start = timeFormatter.date(from: qh.startTime) {
+            startTime = start
+        }
+        if let end = timeFormatter.date(from: qh.endTime) {
+            endTime = end
+        }
+
+        hasChanges = false
+    }
+
+    private func saveQuietHours() {
+        Task {
+            isSaving = true
+            let timezone = TimeZone.current.identifier
+            let success = await settingsService.saveQuietHours(
+                startTime: timeFormatter.string(from: startTime),
+                endTime: timeFormatter.string(from: endTime),
+                timezone: timezone,
+                allowEmergency: allowEmergency,
+                isActive: isActive
+            )
+            isSaving = false
+            if success {
+                hasChanges = false
+            }
+        }
+    }
+
+    private func deleteQuietHours() {
+        Task {
+            let success = await settingsService.deleteQuietHours()
+            if success {
+                isActive = false
+                hasChanges = false
             }
         }
     }

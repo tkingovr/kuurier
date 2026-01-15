@@ -248,6 +248,9 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				pushRoutes.POST("/token", pushHandler.RegisterToken)
 				pushRoutes.DELETE("/token", pushHandler.UnregisterToken)
 				pushRoutes.GET("/tokens", pushHandler.GetTokens)
+				pushRoutes.GET("/quiet-hours", pushHandler.GetQuietHours)
+				pushRoutes.PUT("/quiet-hours", pushHandler.SetQuietHours)
+				pushRoutes.DELETE("/quiet-hours", pushHandler.DeleteQuietHours)
 			}
 
 			// WebSocket endpoint for real-time messaging

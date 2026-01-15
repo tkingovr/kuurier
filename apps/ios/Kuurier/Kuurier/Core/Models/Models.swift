@@ -494,3 +494,70 @@ struct GenerateInviteResponse: Codable {
     let expiresAt: Date
     let message: String
 }
+
+// MARK: - Vouches
+
+struct Vouch: Codable, Identifiable {
+    let userId: String
+    let createdAt: Date
+
+    var id: String { userId }
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "from"
+        case createdAt = "created_at"
+    }
+}
+
+struct VouchGiven: Codable, Identifiable {
+    let userId: String
+    let createdAt: Date
+
+    var id: String { userId }
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "to"
+        case createdAt = "created_at"
+    }
+}
+
+struct VouchesResponse: Codable {
+    let received: [Vouch]?
+    let given: [VouchGiven]?
+}
+
+// MARK: - Quiet Hours
+
+struct QuietHours: Codable {
+    let configured: Bool
+    let startTime: String
+    let endTime: String
+    let timezone: String
+    let allowEmergency: Bool
+    let isActive: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case configured
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case timezone
+        case allowEmergency = "allow_emergency"
+        case isActive = "is_active"
+    }
+}
+
+struct QuietHoursRequest: Encodable {
+    let startTime: String
+    let endTime: String
+    let timezone: String
+    let allowEmergency: Bool
+    let isActive: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case timezone
+        case allowEmergency = "allow_emergency"
+        case isActive = "is_active"
+    }
+}
