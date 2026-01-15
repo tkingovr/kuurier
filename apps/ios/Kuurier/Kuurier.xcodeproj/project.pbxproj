@@ -36,6 +36,8 @@
 		52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */; };
 		52E7DB812F11CA0000CCA28A /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB802F11CA0000CCA28A /* AppConfig.swift */; };
 		52E7DB912F11DA0000CCA28A /* SettingsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB902F11DA0000CCA28A /* SettingsService.swift */; };
+		52E7DBA02F11EA0000CCA28A /* AppLockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DBA12F11EA0000CCA28A /* AppLockService.swift */; };
+		52E7DBA22F11EA0000CCA28A /* PINEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DBA32F11EA0000CCA28A /* PINEntryView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -70,6 +72,8 @@
 		52E7DB752F11BA0000CCA28A /* Kuurier.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Kuurier.entitlements; sourceTree = "<group>"; };
 		52E7DB802F11CA0000CCA28A /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		52E7DB902F11DA0000CCA28A /* SettingsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsService.swift; sourceTree = "<group>"; };
+		52E7DBA12F11EA0000CCA28A /* AppLockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLockService.swift; sourceTree = "<group>"; };
+		52E7DBA32F11EA0000CCA28A /* PINEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PINEntryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -221,6 +225,15 @@
 			path = Push;
 			sourceTree = "<group>";
 		};
+		52E7DBA42F11EA0000CCA28A /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DBA12F11EA0000CCA28A /* AppLockService.swift */,
+				52E7DBA32F11EA0000CCA28A /* PINEntryView.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
 		52E7DB042F1151EC00CCA28A /* Invites */ = {
 			isa = PBXGroup;
 			children = (
@@ -279,6 +292,7 @@
 				52E7DAF42F1151EC00CCA28A /* Map */,
 				52E7DB242F118A0000CCA28A /* Messaging */,
 				52E7DB742F11BA0000CCA28A /* Push */,
+				52E7DBA42F11EA0000CCA28A /* Security */,
 				52E7DAF52F1151EC00CCA28A /* Settings */,
 			);
 			path = Features;
@@ -404,6 +418,8 @@
 				52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */,
 				52E7DB812F11CA0000CCA28A /* AppConfig.swift in Sources */,
 				52E7DB912F11DA0000CCA28A /* SettingsService.swift in Sources */,
+				52E7DBA02F11EA0000CCA28A /* AppLockService.swift in Sources */,
+				52E7DBA22F11EA0000CCA28A /* PINEntryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

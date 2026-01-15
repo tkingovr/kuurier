@@ -3,6 +3,7 @@ import MapKit
 import CoreLocation
 import Combine
 import PhotosUI
+import LocalAuthentication
 
 struct ContentView: View {
 
@@ -3496,6 +3497,7 @@ struct SettingsView: View {
         case topics
         case locations
         case quietHours
+        case appLock
     }
 
     var body: some View {
@@ -3560,6 +3562,19 @@ struct SettingsView: View {
                 }
 
                 Section("Security") {
+                    NavigationLink(value: SettingsDestination.appLock) {
+                        HStack {
+                            Image(systemName: "lock.shield")
+                                .foregroundColor(.orange)
+                            Text("App Lock & Duress PIN")
+                            Spacer()
+                            if AppLockService.shared.isAppLockEnabled {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                            }
+                        }
+                    }
+
                     Button(action: { showRecoveryKey = true }) {
                         HStack {
                             Image(systemName: "key")
@@ -3596,6 +3611,8 @@ struct SettingsView: View {
                     LocationSubscriptionsView()
                 case .quietHours:
                     QuietHoursView()
+                case .appLock:
+                    AppLockSettingsView()
                 }
             }
             .alert("Panic Wipe", isPresented: $showPanicConfirmation) {
@@ -5104,6 +5121,201 @@ struct UserProfileView: View {
                 await loadProfile()
             }
             isVouching = false
+        }
+    }
+}
+
+// MARK: - App Lock Settings View
+
+struct AppLockSettingsView: View {
+    @StateObject private var appLockService = AppLockService.shared
+    @State private var showSetupPIN = false
+    @State private var showChangePIN = false
+    @State private var showSetupDuress = false
+    @State private var showDisableConfirm = false
+    @State private var disablePIN = ""
+    @State private var showDisableError = false
+
+    var body: some View {
+        List {
+            // App Lock Status Section
+            Section {
+                if appLockService.isAppLockEnabled {
+                    HStack {
+                        Image(systemName: "lock.shield.fill")
+                            .foregroundColor(.green)
+                        Text("App Lock Enabled")
+                            .foregroundColor(.green)
+                    }
+                } else {
+                    HStack {
+                        Image(systemName: "lock.open")
+                            .foregroundColor(.secondary)
+                        Text("App Lock Disabled")
+                            .foregroundColor(.secondary)
+                    }
+                }
+            } footer: {
+                Text("App Lock requires a PIN to access the app after it's been closed or backgrounded.")
+            }
+
+            // Setup/Manage PIN Section
+            Section("PIN Settings") {
+                if !appLockService.isAppLockEnabled {
+                    Button {
+                        showSetupPIN = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(.orange)
+                            Text("Set Up App Lock PIN")
+                        }
+                    }
+                } else {
+                    Button {
+                        showChangePIN = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Text("Change PIN")
+                        }
+                    }
+
+                    Button(role: .destructive) {
+                        showDisableConfirm = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "lock.open")
+                            Text("Disable App Lock")
+                        }
+                    }
+                }
+            }
+
+            // Biometric Section
+            if appLockService.isAppLockEnabled && appLockService.canUseBiometrics {
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { appLockService.isBiometricEnabled },
+                        set: { appLockService.setBiometricEnabled($0) }
+                    )) {
+                        HStack {
+                            Image(systemName: biometricIcon)
+                            Text("Use \(appLockService.biometricTypeName)")
+                        }
+                    }
+                } header: {
+                    Text("Biometric Unlock")
+                } footer: {
+                    Text("Unlock the app quickly using \(appLockService.biometricTypeName) instead of entering your PIN.")
+                }
+            }
+
+            // Auto Lock Timeout Section
+            if appLockService.isAppLockEnabled {
+                Section {
+                    Picker("Lock After", selection: Binding(
+                        get: { appLockService.autoLockTimeout },
+                        set: { appLockService.setAutoLockTimeout($0) }
+                    )) {
+                        ForEach(AppLockService.AutoLockTimeout.allCases, id: \.self) { timeout in
+                            Text(timeout.displayName).tag(timeout)
+                        }
+                    }
+                } header: {
+                    Text("Auto Lock")
+                } footer: {
+                    Text("How long the app can be in the background before requiring PIN entry.")
+                }
+            }
+
+            // Duress PIN Section
+            if appLockService.isAppLockEnabled {
+                Section {
+                    if appLockService.isDuressPINSet {
+                        HStack {
+                            Image(systemName: "exclamationmark.shield.fill")
+                                .foregroundColor(.red)
+                            Text("Duress PIN Active")
+                                .foregroundColor(.red)
+                        }
+
+                        Button(role: .destructive) {
+                            showSetupDuress = true
+                        } label: {
+                            Text("Change Duress PIN")
+                        }
+                    } else {
+                        Button {
+                            showSetupDuress = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "exclamationmark.shield")
+                                    .foregroundColor(.red)
+                                Text("Set Up Duress PIN")
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Duress PIN")
+                } footer: {
+                    Text("A duress PIN is a secondary PIN that, when entered, silently wipes all app data. Use this if you're being forced to unlock your phone. The app will appear as if you've never used it.")
+                }
+            }
+
+            // Manual Lock Section
+            if appLockService.isAppLockEnabled {
+                Section {
+                    Button {
+                        appLockService.lockApp()
+                    } label: {
+                        HStack {
+                            Image(systemName: "lock.fill")
+                            Text("Lock App Now")
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("App Lock")
+        .sheet(isPresented: $showSetupPIN) {
+            PINSetupView(mode: .setup)
+        }
+        .sheet(isPresented: $showChangePIN) {
+            PINSetupView(mode: .change)
+        }
+        .sheet(isPresented: $showSetupDuress) {
+            PINSetupView(mode: .duress)
+        }
+        .alert("Disable App Lock", isPresented: $showDisableConfirm) {
+            SecureField("Enter PIN", text: $disablePIN)
+                .keyboardType(.numberPad)
+            Button("Cancel", role: .cancel) {
+                disablePIN = ""
+            }
+            Button("Disable", role: .destructive) {
+                if appLockService.disableAppLock(currentPIN: disablePIN) {
+                    disablePIN = ""
+                } else {
+                    disablePIN = ""
+                    showDisableError = true
+                }
+            }
+        } message: {
+            Text("Enter your current PIN to disable App Lock.")
+        }
+        .alert("Incorrect PIN", isPresented: $showDisableError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The PIN you entered is incorrect.")
+        }
+    }
+
+    private var biometricIcon: String {
+        switch appLockService.biometricType {
+        case .faceID: return "faceid"
+        case .touchID: return "touchid"
+        default: return "faceid"
         }
     }
 }
