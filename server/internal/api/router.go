@@ -94,6 +94,9 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 			protected.POST("/vouch/:user_id", authHandler.Vouch)
 			protected.GET("/vouches", authHandler.GetVouches)
 
+			// User profile routes
+			protected.GET("/users/:user_id", authHandler.GetUserProfile)
+
 			// Invite routes (requires trust 30+)
 			inviteRoutes := protected.Group("/invites")
 			{

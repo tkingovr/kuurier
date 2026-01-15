@@ -352,6 +352,61 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 	})
 }
 
+// GetUserProfile returns another user's public profile
+// GET /users/:user_id
+func (h *Handler) GetUserProfile(c *gin.Context) {
+	requestingUserID := c.GetString("user_id")
+	targetUserID := c.Param("user_id")
+
+	ctx := c.Request.Context()
+
+	// Get target user's info
+	var trustScore int
+	var isVerified bool
+	var createdAt time.Time
+
+	err := h.db.Pool().QueryRow(ctx,
+		"SELECT trust_score, is_verified, created_at FROM users WHERE id = $1",
+		targetUserID,
+	).Scan(&trustScore, &isVerified, &createdAt)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	// Count vouches received
+	var vouchCount int
+	h.db.Pool().QueryRow(ctx,
+		"SELECT COUNT(*) FROM vouches WHERE vouchee_id = $1",
+		targetUserID,
+	).Scan(&vouchCount)
+
+	// Check if current user has vouched for this user
+	var hasVouched bool
+	h.db.Pool().QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM vouches WHERE voucher_id = $1 AND vouchee_id = $2)",
+		requestingUserID, targetUserID,
+	).Scan(&hasVouched)
+
+	// Check if current user can vouch (trust >= 30)
+	var requestingUserTrust int
+	h.db.Pool().QueryRow(ctx,
+		"SELECT trust_score FROM users WHERE id = $1",
+		requestingUserID,
+	).Scan(&requestingUserTrust)
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":          targetUserID,
+		"trust_score": trustScore,
+		"is_verified": isVerified,
+		"created_at":  createdAt,
+		"vouch_count": vouchCount,
+		"has_vouched": hasVouched,
+		"can_vouch":   requestingUserTrust >= 30 && !hasVouched && requestingUserID != targetUserID,
+	})
+}
+
 // DeleteAccount permanently deletes the user's account
 func (h *Handler) DeleteAccount(c *gin.Context) {
 	userID := c.GetString("user_id")

@@ -495,6 +495,28 @@ struct GenerateInviteResponse: Codable {
     let message: String
 }
 
+// MARK: - User Profile
+
+struct UserProfile: Codable, Identifiable {
+    let id: String
+    let trustScore: Int
+    let isVerified: Bool
+    let createdAt: Date
+    let vouchCount: Int
+    let hasVouched: Bool
+    let canVouch: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case trustScore = "trust_score"
+        case isVerified = "is_verified"
+        case createdAt = "created_at"
+        case vouchCount = "vouch_count"
+        case hasVouched = "has_vouched"
+        case canVouch = "can_vouch"
+    }
+}
+
 // MARK: - Vouches
 
 struct Vouch: Codable, Identifiable {

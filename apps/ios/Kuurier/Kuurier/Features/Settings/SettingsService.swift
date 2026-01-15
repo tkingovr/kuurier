@@ -205,6 +205,20 @@ final class SettingsService: ObservableObject {
             return false
         }
     }
+
+    // MARK: - User Profiles
+
+    /// Fetches another user's profile
+    @MainActor
+    func fetchUserProfile(userId: String) async -> UserProfile? {
+        do {
+            let profile: UserProfile = try await api.get("/users/\(userId)")
+            return profile
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
 }
 
 // MARK: - Request Types

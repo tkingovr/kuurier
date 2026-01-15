@@ -4238,24 +4238,26 @@ struct VouchRow: View {
     }
 
     var body: some View {
-        HStack {
-            Image(systemName: direction.icon)
-                .foregroundColor(direction.color)
+        NavigationLink(destination: UserProfileView(userId: userId)) {
+            HStack {
+                Image(systemName: direction.icon)
+                    .foregroundColor(direction.color)
 
-            VStack(alignment: .leading) {
-                Text(userId.prefix(8) + "...")
-                    .font(.system(.body, design: .monospaced))
-                Text(date, style: .relative)
+                VStack(alignment: .leading) {
+                    Text(userId.prefix(8) + "...")
+                        .font(.system(.body, design: .monospaced))
+                    Text(date, style: .relative)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Text(direction == .received ? "+10" : "")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .fontWeight(.bold)
+                    .foregroundColor(.green)
             }
-
-            Spacer()
-
-            Text(direction == .received ? "+10" : "")
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundColor(.green)
         }
     }
 }
@@ -4751,6 +4753,203 @@ struct QuietHoursView: View {
                 isActive = false
                 hasChanges = false
             }
+        }
+    }
+}
+
+// MARK: - User Profile View
+
+struct UserProfileView: View {
+    let userId: String
+    @StateObject private var settingsService = SettingsService.shared
+    @EnvironmentObject var authService: AuthService
+    @State private var profile: UserProfile?
+    @State private var isLoading = true
+    @State private var isVouching = false
+    @State private var showVouchSuccess = false
+
+    private var isOwnProfile: Bool {
+        authService.currentUser?.id == userId
+    }
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Loading profile...")
+            } else if let profile = profile {
+                profileContent(profile)
+            } else {
+                ContentUnavailableView(
+                    "User Not Found",
+                    systemImage: "person.slash",
+                    description: Text("This user doesn't exist or has been deleted.")
+                )
+            }
+        }
+        .navigationTitle("Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadProfile()
+        }
+        .alert("Vouched!", isPresented: $showVouchSuccess) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You've successfully vouched for this user. Their trust score has increased by 10 points.")
+        }
+    }
+
+    @ViewBuilder
+    private func profileContent(_ profile: UserProfile) -> some View {
+        List {
+            // User ID Section
+            Section {
+                VStack(alignment: .center, spacing: 16) {
+                    // Avatar placeholder
+                    ZStack {
+                        Circle()
+                            .fill(Color.orange.opacity(0.2))
+                            .frame(width: 80, height: 80)
+                        Text(String(userId.prefix(2)).uppercased())
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundColor(.orange)
+                    }
+
+                    // User ID (truncated)
+                    Text(userId)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    if profile.isVerified {
+                        Label("Verified", systemImage: "checkmark.seal.fill")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+
+            // Trust Score Section
+            Section("Trust") {
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("Trust Score")
+                            .font(.headline)
+                        Text("Based on vouches received")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Text("\(profile.trustScore)")
+                        .font(.system(size: 36, weight: .bold))
+                        .foregroundColor(trustColor(for: profile.trustScore))
+                }
+
+                HStack {
+                    Label("\(profile.vouchCount) vouches received", systemImage: "person.badge.shield.checkmark")
+                    Spacer()
+                    Text("+\(profile.vouchCount * 10) points")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            // Member Since
+            Section("Account") {
+                LabeledContent("Member Since") {
+                    Text(profile.createdAt, style: .date)
+                }
+            }
+
+            // Vouch Action
+            if !isOwnProfile {
+                Section {
+                    if profile.hasVouched {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("You've vouched for this user")
+                                .foregroundColor(.secondary)
+                        }
+                    } else if profile.canVouch {
+                        Button(action: vouchForUser) {
+                            HStack {
+                                Spacer()
+                                if isVouching {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "hand.thumbsup.fill")
+                                    Text("Vouch for this User")
+                                        .fontWeight(.semibold)
+                                }
+                                Spacer()
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .listRowBackground(Color.orange)
+                        .disabled(isVouching)
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: "lock.fill")
+                                    .foregroundColor(.secondary)
+                                Text("Cannot vouch yet")
+                                    .foregroundColor(.secondary)
+                            }
+                            Text("You need a trust score of 30 to vouch for others.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+
+            // Trust Level Explanation
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Trust Levels")
+                        .font(.headline)
+                    TrustLevelRow(level: 15, label: "View feed", icon: "newspaper", currentScore: profile.trustScore)
+                    TrustLevelRow(level: 25, label: "Create posts", icon: "square.and.pencil", currentScore: profile.trustScore)
+                    TrustLevelRow(level: 30, label: "Generate invites", icon: "envelope.badge.person.crop", currentScore: profile.trustScore)
+                    TrustLevelRow(level: 50, label: "Create events", icon: "calendar.badge.plus", currentScore: profile.trustScore)
+                    TrustLevelRow(level: 100, label: "Send SOS alerts", icon: "exclamationmark.triangle", currentScore: profile.trustScore)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private func trustColor(for score: Int) -> Color {
+        if score >= 100 {
+            return .green
+        } else if score >= 50 {
+            return .blue
+        } else if score >= 30 {
+            return .orange
+        } else {
+            return .secondary
+        }
+    }
+
+    private func loadProfile() async {
+        isLoading = true
+        profile = await settingsService.fetchUserProfile(userId: userId)
+        isLoading = false
+    }
+
+    private func vouchForUser() {
+        Task {
+            isVouching = true
+            let success = await settingsService.vouchForUser(userId: userId)
+            if success {
+                showVouchSuccess = true
+                await loadProfile()
+            }
+            isVouching = false
         }
     }
 }
