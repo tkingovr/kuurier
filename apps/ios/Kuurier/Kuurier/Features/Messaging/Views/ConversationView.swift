@@ -171,6 +171,10 @@ final class ConversationViewModel: ObservableObject {
     private let signalService = SignalService.shared
     private let senderKeyService = SenderKeyService.shared
     private let wsService = WebSocketService.shared
+    private let pendingStore = PendingMessageStore.shared
+
+    // Map local pending IDs to server message IDs for deduplication
+    private var localToServerIds: [String: String] = [:]
 
     init(channel: Channel) {
         self.channel = channel
@@ -226,12 +230,45 @@ final class ConversationViewModel: ObservableObject {
             return
         }
 
-        // Don't add if it's our own message (already added optimistically)
-        if message.senderId == SecureStorage.shared.userID {
+        // Don't add if already in messages (server ID match)
+        if messages.contains(where: { $0.id == message.id }) {
             return
         }
 
-        // Decrypt and add to messages
+        // Check if this is our own message that we sent (local-first pattern)
+        let currentUserId = SecureStorage.shared.userID
+        if message.senderId == currentUserId {
+            // Check if we have a pending message for this
+            if pendingStore.isPendingMessage(serverMessageId: message.id, channelId: channelId) {
+                return  // Already handled by sendMessage
+            }
+
+            // Check if we have any pending messages (we might be waiting for confirmation)
+            let pendingMessages = pendingStore.getMessages(for: channelId)
+            if !pendingMessages.isEmpty {
+                // Check if any pending message matches by content and approximate time
+                // This handles the case where WebSocket arrives before POST response
+                for pending in pendingMessages where pending.status == .sending {
+                    // If message was created within 30 seconds, it's likely our pending message
+                    let timeDiff = abs(message.createdAt.timeIntervalSince(pending.createdAt))
+                    if timeDiff < 30 {
+                        // Update our local tracking
+                        pendingStore.markSent(messageId: pending.id, channelId: channelId, serverMessageId: message.id)
+                        localToServerIds[pending.id] = message.id
+
+                        // Replace local message with server message
+                        if let index = messages.firstIndex(where: { $0.id == pending.id }) {
+                            var confirmedMessage = message
+                            confirmedMessage.decryptedContent = pending.content
+                            messages[index] = confirmedMessage
+                        }
+                        return
+                    }
+                }
+            }
+        }
+
+        // This is a message from someone else - decrypt and add
         var decryptedMessage = message
         decryptedMessage.decryptedContent = await decryptMessage(message)
         messages.append(decryptedMessage)
@@ -249,14 +286,61 @@ final class ConversationViewModel: ObservableObject {
 
             let response: MessagesResponse = try await api.get("/messages/\(channelId)")
             // Messages come newest first, reverse for display
-            var decryptedMessages = response.messages.reversed().map { $0 }
+            var serverMessages = response.messages.reversed().map { $0 }
 
-            // Decrypt messages
-            for i in 0..<decryptedMessages.count {
-                decryptedMessages[i].decryptedContent = await decryptMessage(decryptedMessages[i])
+            // Create a map of already-decrypted messages to avoid re-decryption
+            let existingDecrypted: [String: String] = Dictionary(
+                messages.compactMap { msg -> (String, String)? in
+                    guard let content = msg.decryptedContent else { return nil }
+                    return (msg.id, content)
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+
+            // Decrypt only new messages, reuse existing decrypted content
+            for i in 0..<serverMessages.count {
+                if let existingContent = existingDecrypted[serverMessages[i].id] {
+                    serverMessages[i].decryptedContent = existingContent
+                } else {
+                    serverMessages[i].decryptedContent = await decryptMessage(serverMessages[i])
+                }
             }
 
-            messages = decryptedMessages
+            // Get IDs of messages from server (including mapped local IDs)
+            let serverMessageIds = Set(serverMessages.map { $0.id })
+
+            // Get pending messages from local storage (Signal pattern)
+            let pendingMessages = pendingStore.getMessages(for: channelId)
+
+            // Convert pending messages to Message objects for display
+            let pendingToDisplay: [Message] = pendingMessages.compactMap { pending in
+                // Skip if this message is already on server (by checking localToServerIds)
+                if let serverId = localToServerIds[pending.id], serverMessageIds.contains(serverId) {
+                    return nil
+                }
+                // Skip if somehow the pending ID is on server
+                if serverMessageIds.contains(pending.id) {
+                    return nil
+                }
+
+                return Message(
+                    id: pending.id,
+                    channelId: channelId,
+                    senderId: SecureStorage.shared.userID ?? "",
+                    ciphertext: Data(),
+                    messageType: .text,
+                    replyToId: nil,
+                    createdAt: pending.createdAt,
+                    editedAt: nil,
+                    decryptedContent: pending.content
+                )
+            }
+
+            // Merge: server messages + pending messages (sorted by date)
+            var allMessages = serverMessages + pendingToDisplay
+            allMessages.sort { $0.createdAt < $1.createdAt }
+            messages = allMessages
+
             hasMoreMessages = response.messages.count >= 50
         } catch {
             self.error = error.localizedDescription
@@ -266,7 +350,10 @@ final class ConversationViewModel: ObservableObject {
     }
 
     func loadMoreMessages() async {
-        guard let oldestMessage = messages.first, hasMoreMessages else { return }
+        // Find oldest non-pending message to use as cursor
+        let pendingIds = Set(pendingStore.getMessages(for: channelId).map { $0.id })
+        let nonPendingMessages = messages.filter { !pendingIds.contains($0.id) }
+        guard let oldestMessage = nonPendingMessages.first, hasMoreMessages else { return }
 
         do {
             let beforeDate = ISO8601DateFormatter().string(from: oldestMessage.createdAt)
@@ -280,7 +367,11 @@ final class ConversationViewModel: ObservableObject {
                 decryptedMessages[i].decryptedContent = await decryptMessage(decryptedMessages[i])
             }
 
-            messages.insert(contentsOf: decryptedMessages, at: 0)
+            // Remove any duplicates that might exist
+            let existingIds = Set(messages.map { $0.id })
+            let newMessages = decryptedMessages.filter { !existingIds.contains($0.id) }
+
+            messages.insert(contentsOf: newMessages, at: 0)
             hasMoreMessages = response.messages.count >= 50
         } catch {
             self.error = error.localizedDescription
@@ -289,6 +380,27 @@ final class ConversationViewModel: ObservableObject {
 
     func sendMessage(_ content: String) async {
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // STEP 1: Save to local storage FIRST (Signal pattern)
+        // This ensures the message survives any race conditions
+        let pendingMessage = pendingStore.saveMessage(channelId: channelId, content: content)
+
+        // STEP 2: Add to UI immediately from local storage
+        let localMessage = Message(
+            id: pendingMessage.id,
+            channelId: channelId,
+            senderId: SecureStorage.shared.userID ?? "",
+            ciphertext: Data(),
+            messageType: .text,
+            replyToId: nil,
+            createdAt: pendingMessage.createdAt,
+            editedAt: nil,
+            decryptedContent: content
+        )
+        messages.append(localMessage)
+
+        // STEP 3: Send asynchronously (don't block UI)
+        pendingStore.markSending(messageId: pendingMessage.id, channelId: channelId)
 
         do {
             // Encrypt the message
@@ -302,16 +414,24 @@ final class ConversationViewModel: ObservableObject {
                 replyToId: nil
             )
 
-            let message: Message = try await api.post("/messages", body: request)
+            let serverMessage: Message = try await api.post("/messages", body: request)
 
-            // Add to local messages with decrypted content
-            var decryptedMessage = message
-            decryptedMessage.decryptedContent = content
-            messages.append(decryptedMessage)
+            // STEP 4: Update local storage with server ID
+            pendingStore.markSent(messageId: pendingMessage.id, channelId: channelId, serverMessageId: serverMessage.id)
+            localToServerIds[pendingMessage.id] = serverMessage.id
+
+            // Update the message in UI with server details (keep same position)
+            if let index = messages.firstIndex(where: { $0.id == pendingMessage.id }) {
+                var confirmedMessage = serverMessage
+                confirmedMessage.decryptedContent = content
+                messages[index] = confirmedMessage
+            }
 
             // Mark channel as read
             await MessagingService.shared.markChannelRead(channelId)
         } catch {
+            // Mark as failed but keep in UI (user can retry)
+            pendingStore.markFailed(messageId: pendingMessage.id, channelId: channelId, error: error.localizedDescription)
             self.error = "Failed to send message: \(error.localizedDescription)"
         }
     }

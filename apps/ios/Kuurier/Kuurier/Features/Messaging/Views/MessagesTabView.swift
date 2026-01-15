@@ -7,6 +7,10 @@ struct MessagesTabView: View {
     @State private var showNewOrg = false
     @State private var selectedChannel: Channel?
     @State private var selectedOrg: Organization?
+    @State private var channelToDelete: Channel?
+    @State private var showDeleteConfirm = false
+    @State private var deleteError: String?
+    @State private var showDeleteError = false
 
     var body: some View {
         NavigationStack {
@@ -20,6 +24,21 @@ struct MessagesTabView: View {
                                 .onTapGesture {
                                     selectedChannel = channel
                                 }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        channelToDelete = channel
+                                        showDeleteConfirm = true
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+
+                                    Button {
+                                        hideChannel(channel)
+                                    } label: {
+                                        Label("Hide", systemImage: "eye.slash")
+                                    }
+                                    .tint(.orange)
+                                }
                         }
                     }
                 }
@@ -32,6 +51,21 @@ struct MessagesTabView: View {
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     selectedChannel = channel
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        channelToDelete = channel
+                                        showDeleteConfirm = true
+                                    } label: {
+                                        Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
+                                    }
+
+                                    Button {
+                                        hideChannel(channel)
+                                    } label: {
+                                        Label("Hide", systemImage: "eye.slash")
+                                    }
+                                    .tint(.orange)
                                 }
                         }
                     }
@@ -101,6 +135,29 @@ struct MessagesTabView: View {
                     ProgressView()
                 }
             }
+            .alert("Delete Conversation?", isPresented: $showDeleteConfirm) {
+                Button("Cancel", role: .cancel) {
+                    channelToDelete = nil
+                }
+                Button("Delete", role: .destructive) {
+                    if let channel = channelToDelete {
+                        deleteChannel(channel)
+                    }
+                }
+            } message: {
+                if let channel = channelToDelete {
+                    if channel.type == .dm {
+                        Text("This will remove the conversation from your list. The other person will still have their copy.")
+                    } else {
+                        Text("This will leave the channel. You can rejoin later if it's public.")
+                    }
+                }
+            }
+            .alert("Error", isPresented: $showDeleteError) {
+                Button("OK") {}
+            } message: {
+                Text(deleteError ?? "Failed to delete conversation")
+            }
         }
     }
 
@@ -111,6 +168,37 @@ struct MessagesTabView: View {
 
     private func channelCount(for org: Organization) -> Int {
         messagingService.channelsByOrg[org.id]?.count ?? 0
+    }
+
+    private func deleteChannel(_ channel: Channel) {
+        Task {
+            do {
+                if channel.type == .dm {
+                    // For DMs, hide the conversation
+                    try await messagingService.hideConversation(channelId: channel.id)
+                } else {
+                    // For groups/events, leave the channel
+                    try await messagingService.leaveChannel(channel.id)
+                }
+                // Also clear any pending messages for this channel
+                PendingMessageStore.shared.clearChannel(channelId: channel.id)
+            } catch {
+                deleteError = error.localizedDescription
+                showDeleteError = true
+            }
+            channelToDelete = nil
+        }
+    }
+
+    private func hideChannel(_ channel: Channel) {
+        Task {
+            do {
+                try await messagingService.hideConversation(channelId: channel.id)
+            } catch {
+                deleteError = error.localizedDescription
+                showDeleteError = true
+            }
+        }
     }
 }
 
@@ -274,6 +362,22 @@ struct OrganizationDetailView: View {
                             .onTapGesture {
                                 selectedChannel = channel
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    leaveChannel(channel)
+                                } label: {
+                                    Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
+                                }
+
+                                if organization.role == "admin" {
+                                    Button {
+                                        archiveChannel(channel)
+                                    } label: {
+                                        Label("Archive", systemImage: "archivebox")
+                                    }
+                                    .tint(.orange)
+                                }
+                            }
                     }
                 }
 
@@ -430,6 +534,29 @@ struct OrganizationDetailView: View {
         } catch {
             errorMessage = "Failed to decline transfer: \(error.localizedDescription)"
             showError = true
+        }
+    }
+
+    private func leaveChannel(_ channel: Channel) {
+        Task {
+            do {
+                try await messagingService.leaveChannel(channel.id)
+                PendingMessageStore.shared.clearChannel(channelId: channel.id)
+            } catch {
+                errorMessage = "Failed to leave channel: \(error.localizedDescription)"
+                showError = true
+            }
+        }
+    }
+
+    private func archiveChannel(_ channel: Channel) {
+        Task {
+            do {
+                try await messagingService.archiveChannel(channelId: channel.id)
+            } catch {
+                errorMessage = "Failed to archive channel: \(error.localizedDescription)"
+                showError = true
+            }
         }
     }
 }
