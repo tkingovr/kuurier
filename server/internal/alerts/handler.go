@@ -155,12 +155,12 @@ func (h *Handler) CreateAlert(c *gin.Context) {
 		req.RadiusMeters = 50000 // Max 50km
 	}
 
-	locationSQL := "POINT(" + strconv.FormatFloat(req.Longitude, 'f', 6, 64) + " " + strconv.FormatFloat(req.Latitude, 'f', 6, 64) + ")"
-
+	// Use parameterized ST_MakePoint to prevent SQL injection
+	// ST_SetSRID sets the coordinate system to WGS 84 (GPS)
 	_, err = h.db.Pool().Exec(ctx, `
 		INSERT INTO alerts (id, author_id, title, description, severity, location, location_name, radius_meters)
-		VALUES ($1, $2, $3, $4, $5, ST_GeogFromText($6), $7, $8)
-	`, alertID, userID, req.Title, req.Description, req.Severity, locationSQL, req.LocationName, req.RadiusMeters)
+		VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography, $8, $9)
+	`, alertID, userID, req.Title, req.Description, req.Severity, req.Longitude, req.Latitude, req.LocationName, req.RadiusMeters)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create alert"})
@@ -350,21 +350,27 @@ func (h *Handler) RespondToAlert(c *gin.Context) {
 		return
 	}
 
-	// Build location if provided
-	var locationSQL interface{}
+	// Use parameterized ST_MakePoint for location to prevent SQL injection
 	if req.Latitude != nil && req.Longitude != nil {
-		locationSQL = "POINT(" + strconv.FormatFloat(*req.Longitude, 'f', 6, 64) + " " + strconv.FormatFloat(*req.Latitude, 'f', 6, 64) + ")"
+		_, err = h.db.Pool().Exec(ctx, `
+			INSERT INTO alert_responses (alert_id, user_id, status, eta_minutes, location)
+			VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography)
+			ON CONFLICT (alert_id, user_id) DO UPDATE SET
+				status = $3,
+				eta_minutes = $4,
+				location = ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography,
+				updated_at = NOW()
+		`, alertID, userID, req.Status, req.ETAMinutes, *req.Longitude, *req.Latitude)
+	} else {
+		_, err = h.db.Pool().Exec(ctx, `
+			INSERT INTO alert_responses (alert_id, user_id, status, eta_minutes)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (alert_id, user_id) DO UPDATE SET
+				status = $3,
+				eta_minutes = $4,
+				updated_at = NOW()
+		`, alertID, userID, req.Status, req.ETAMinutes)
 	}
-
-	_, err = h.db.Pool().Exec(ctx, `
-		INSERT INTO alert_responses (alert_id, user_id, status, eta_minutes, location)
-		VALUES ($1, $2, $3, $4, ST_GeogFromText($5))
-		ON CONFLICT (alert_id, user_id) DO UPDATE SET
-			status = $3,
-			eta_minutes = $4,
-			location = ST_GeogFromText($5),
-			updated_at = NOW()
-	`, alertID, userID, req.Status, req.ETAMinutes, locationSQL)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record response"})

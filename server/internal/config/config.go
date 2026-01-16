@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds all configuration for the server
@@ -35,8 +36,9 @@ type Config struct {
 	MinIOUseSSL    bool
 
 	// Security
-	JWTSecret     []byte
-	TokenDuration int // hours
+	JWTSecret      []byte
+	TokenDuration  int      // hours
+	AllowedOrigins []string // CORS allowed origins (empty = allow all in dev)
 
 	// Encryption
 	EncryptionKey []byte
@@ -85,10 +87,15 @@ func Load() (*Config, error) {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		if cfg.Environment == "production" {
-			return nil, fmt.Errorf("JWT_SECRET is required in production")
+			return nil, fmt.Errorf("JWT_SECRET is required in production - generate with: openssl rand -base64 32")
 		}
-		// Use a default for development only
-		jwtSecret = "dev-secret-do-not-use-in-production"
+		// Use a clearly marked dev secret only in development
+		jwtSecret = "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION"
+		fmt.Println("WARNING: Using insecure default JWT secret. Set JWT_SECRET in production!")
+	}
+	// Ensure minimum length for JWT secret (32 bytes recommended)
+	if len(jwtSecret) < 32 {
+		return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters")
 	}
 	cfg.JWTSecret = []byte(jwtSecret)
 
@@ -96,12 +103,30 @@ func Load() (*Config, error) {
 	encKey := os.Getenv("ENCRYPTION_KEY")
 	if encKey == "" {
 		if cfg.Environment == "production" {
-			return nil, fmt.Errorf("ENCRYPTION_KEY is required in production")
+			return nil, fmt.Errorf("ENCRYPTION_KEY is required in production - generate with: openssl rand -base64 32")
 		}
 		// 32-byte key for AES-256 (development only)
-		encKey = "dev-key-32-bytes-do-not-use!!"
+		encKey = "INSECURE_DEV_KEY_32_CHANGE_ME!!"
+		fmt.Println("WARNING: Using insecure default encryption key. Set ENCRYPTION_KEY in production!")
+	}
+	// Encryption key must be exactly 32 bytes for AES-256
+	if len(encKey) != 32 {
+		return nil, fmt.Errorf("ENCRYPTION_KEY must be exactly 32 characters for AES-256")
 	}
 	cfg.EncryptionKey = []byte(encKey)
+
+	// CORS allowed origins (required in production)
+	corsOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if corsOrigins != "" {
+		cfg.AllowedOrigins = strings.Split(corsOrigins, ",")
+		// Trim whitespace from each origin
+		for i, origin := range cfg.AllowedOrigins {
+			cfg.AllowedOrigins[i] = strings.TrimSpace(origin)
+		}
+	} else if cfg.Environment == "production" {
+		return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS is required in production (comma-separated list)")
+	}
+	// Empty AllowedOrigins in development = allow all (handled by middleware)
 
 	return cfg, nil
 }
