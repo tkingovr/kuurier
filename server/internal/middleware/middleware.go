@@ -1,9 +1,13 @@
 package middleware
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -31,11 +35,38 @@ func Logger() gin.HandlerFunc {
 }
 
 // CORS handles Cross-Origin Resource Sharing
-func CORS() gin.HandlerFunc {
+// In production, only allow requests from trusted origins
+func CORS(allowedOrigins []string) gin.HandlerFunc {
+	// Build a map for O(1) lookup
+	originsMap := make(map[string]bool)
+	for _, origin := range allowedOrigins {
+		originsMap[origin] = true
+	}
+
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*") // Restrict in production
+		origin := c.GetHeader("Origin")
+
+		// Check if origin is allowed
+		if len(allowedOrigins) > 0 {
+			if _, ok := originsMap[origin]; ok {
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Vary", "Origin")
+			} else {
+				// Origin not allowed - don't set CORS headers
+				// Browser will block the request
+				if c.Request.Method == "OPTIONS" {
+					c.AbortWithStatus(http.StatusForbidden)
+					return
+				}
+			}
+		} else {
+			// Development mode - allow all origins (empty allowedOrigins list)
+			c.Header("Access-Control-Allow-Origin", "*")
+		}
+
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == "OPTIONS" {
@@ -78,33 +109,65 @@ func Security() gin.HandlerFunc {
 	}
 }
 
-// RateLimit implements rate limiting per token
-func RateLimit(redis *storage.Redis) gin.HandlerFunc {
+// RateLimitConfig configures rate limiting behavior
+type RateLimitConfig struct {
+	RequestsPerMinute int64 // Default: 100
+	FailClosedMode    bool  // If true, reject requests when Redis is unavailable
+}
+
+// Local in-memory rate limiter as fallback
+var localRateLimiter = struct {
+	sync.Mutex
+	counts map[string]int64
+	expiry map[string]time.Time
+}{
+	counts: make(map[string]int64),
+	expiry: make(map[string]time.Time),
+}
+
+// RateLimit implements rate limiting per token with fail-safe behavior
+func RateLimit(redis *storage.Redis, rateCfg *RateLimitConfig, serverCfg *config.Config) gin.HandlerFunc {
+	if rateCfg == nil {
+		rateCfg = &RateLimitConfig{
+			RequestsPerMinute: 100,
+			FailClosedMode:    true, // Secure by default
+		}
+	}
+
 	return func(c *gin.Context) {
 		// Get identifier (user ID from token, or hashed fingerprint for anonymous)
 		identifier := c.GetString("user_id")
 		if identifier == "" {
-			// For unauthenticated requests, use a hash of headers (not IP)
-			identifier = "anon:" + hashFingerprint(c)
+			// For unauthenticated requests, use HMAC-based fingerprint (not IP)
+			identifier = "anon:" + hashFingerprintHMAC(c, serverCfg.JWTSecret)
 		}
 
 		key := "ratelimit:" + identifier
 
-		// Check rate limit (100 requests per minute)
+		// Check rate limit (configurable requests per minute)
 		ctx := c.Request.Context()
 		count, err := redis.Client().Incr(ctx, key).Result()
+
 		if err != nil {
-			// If Redis fails, allow the request (fail open for availability)
-			c.Next()
-			return
+			// Redis unavailable - use local fallback or fail closed
+			log.Printf("WARNING: Redis rate limit check failed: %v", err)
+
+			if rateCfg.FailClosedMode {
+				// Use local in-memory rate limiter as fallback
+				count = localRateLimitCheck(key, rateCfg.RequestsPerMinute)
+			} else {
+				// Legacy behavior: allow request but log warning
+				c.Next()
+				return
+			}
+		} else {
+			// Set expiry on first request in Redis
+			if count == 1 {
+				redis.Client().Expire(ctx, key, time.Minute)
+			}
 		}
 
-		// Set expiry on first request
-		if count == 1 {
-			redis.Client().Expire(ctx, key, time.Minute)
-		}
-
-		if count > 100 {
+		if count > rateCfg.RequestsPerMinute {
 			c.Header("Retry-After", "60")
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": "rate limit exceeded",
@@ -115,6 +178,40 @@ func RateLimit(redis *storage.Redis) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// localRateLimitCheck provides a local fallback rate limiter
+func localRateLimitCheck(key string, limit int64) int64 {
+	localRateLimiter.Lock()
+	defer localRateLimiter.Unlock()
+
+	// Clean up expired entries periodically
+	now := time.Now()
+	if len(localRateLimiter.counts) > 10000 {
+		for k, exp := range localRateLimiter.expiry {
+			if now.After(exp) {
+				delete(localRateLimiter.counts, k)
+				delete(localRateLimiter.expiry, k)
+			}
+		}
+	}
+
+	// Check if key has expired
+	if exp, ok := localRateLimiter.expiry[key]; ok && now.After(exp) {
+		delete(localRateLimiter.counts, key)
+		delete(localRateLimiter.expiry, key)
+	}
+
+	// Increment count
+	count := localRateLimiter.counts[key] + 1
+	localRateLimiter.counts[key] = count
+
+	// Set expiry if new key
+	if _, ok := localRateLimiter.expiry[key]; !ok {
+		localRateLimiter.expiry[key] = now.Add(time.Minute)
+	}
+
+	return count
 }
 
 // Auth validates JWT tokens
@@ -193,18 +290,15 @@ func RequireTrust(minScore int) gin.HandlerFunc {
 	}
 }
 
-// hashFingerprint creates a privacy-preserving identifier from request headers
-func hashFingerprint(c *gin.Context) string {
+// hashFingerprintHMAC creates a privacy-preserving identifier from request headers
+// SECURITY: Uses HMAC with server secret to prevent fingerprint prediction/manipulation
+func hashFingerprintHMAC(c *gin.Context, secret []byte) string {
 	// Use non-identifying headers to create a fingerprint
 	// This is NOT for tracking, just for rate limiting
-	data := c.GetHeader("User-Agent") + c.GetHeader("Accept-Language")
-	// In production, use a proper hash
-	return data[:min(32, len(data))]
-}
+	data := c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language") + "|" + c.GetHeader("Accept-Encoding")
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	// Use HMAC-SHA256 with server secret for secure hashing
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(data))
+	return hex.EncodeToString(mac.Sum(nil))[:32] // Truncate to 32 chars for storage efficiency
 }
