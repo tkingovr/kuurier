@@ -60,6 +60,47 @@ enum AppConfig {
         #endif
     }
 
+    // MARK: - Certificate Pinning
+
+    /// Pinned public key hashes (SHA256 of SPKI)
+    /// These are the base64-encoded SHA256 hashes of the server's public key
+    ///
+    /// To generate a pin from your certificate:
+    /// ```bash
+    /// # From a certificate file:
+    /// openssl x509 -in cert.pem -pubkey -noout | \
+    ///   openssl pkey -pubin -outform DER | \
+    ///   openssl dgst -sha256 -binary | base64
+    ///
+    /// # From a live server:
+    /// openssl s_client -connect api.kuurier.app:443 2>/dev/null | \
+    ///   openssl x509 -pubkey -noout | \
+    ///   openssl pkey -pubin -outform DER | \
+    ///   openssl dgst -sha256 -binary | base64
+    /// ```
+    ///
+    /// IMPORTANT: Include at least 2 pins (primary + backup) to avoid lockout
+    /// during certificate rotation. The backup can be a new key pair stored securely.
+    static let pinnedPublicKeyHashes: [String] = [
+        // Primary: Current production server public key
+        // TODO: Replace with actual hash before production deployment
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+
+        // Backup: Secondary key for rotation (generate and store securely)
+        // TODO: Replace with actual backup hash
+        "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+
+        // Let's Encrypt ISRG Root X1 (optional fallback)
+        "C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=",
+    ]
+
+    /// Hosts that require certificate pinning
+    /// Only these hosts will have their certificates validated against pins
+    static let pinnedHosts: Set<String> = [
+        "api.kuurier.app",
+        // Add additional API hosts here if needed
+    ]
+
     // MARK: - Timeouts
 
     /// API request timeout in seconds

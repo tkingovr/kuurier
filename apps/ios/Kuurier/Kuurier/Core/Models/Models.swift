@@ -494,3 +494,98 @@ struct GenerateInviteResponse: Codable {
     let expiresAt: Date
     let message: String
 }
+
+// MARK: - User Profile
+
+struct UserProfile: Codable, Identifiable {
+    let id: String
+    let trustScore: Int
+    let isVerified: Bool
+    let createdAt: Date
+    let vouchCount: Int
+    let hasVouched: Bool
+    let canVouch: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case trustScore = "trust_score"
+        case isVerified = "is_verified"
+        case createdAt = "created_at"
+        case vouchCount = "vouch_count"
+        case hasVouched = "has_vouched"
+        case canVouch = "can_vouch"
+    }
+}
+
+struct UserSearchResponse: Codable {
+    let users: [UserProfile]
+    let query: String
+    let count: Int
+}
+
+// MARK: - Vouches
+
+struct Vouch: Codable, Identifiable {
+    let userId: String
+    let createdAt: Date
+
+    var id: String { userId }
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "from"
+        case createdAt = "created_at"
+    }
+}
+
+struct VouchGiven: Codable, Identifiable {
+    let userId: String
+    let createdAt: Date
+
+    var id: String { userId }
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "to"
+        case createdAt = "created_at"
+    }
+}
+
+struct VouchesResponse: Codable {
+    let received: [Vouch]?
+    let given: [VouchGiven]?
+}
+
+// MARK: - Quiet Hours
+
+struct QuietHours: Codable {
+    let configured: Bool
+    let startTime: String
+    let endTime: String
+    let timezone: String
+    let allowEmergency: Bool
+    let isActive: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case configured
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case timezone
+        case allowEmergency = "allow_emergency"
+        case isActive = "is_active"
+    }
+}
+
+struct QuietHoursRequest: Encodable {
+    let startTime: String
+    let endTime: String
+    let timezone: String
+    let allowEmergency: Bool
+    let isActive: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case timezone
+        case allowEmergency = "allow_emergency"
+        case isActive = "is_active"
+    }
+}

@@ -30,11 +30,16 @@
 		52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */; };
 		52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB372F118B0000CCA28A /* MessagesTabView.swift */; };
 		52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB412F118C0000CCA28A /* WebSocketService.swift */; };
+		52E7DBC02F120A0000CCA28A /* PendingMessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DBC12F120A0000CCA28A /* PendingMessageStore.swift */; };
 		52E7DB522F119A0000CCA28A /* SenderKeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB502F119A0000CCA28A /* SenderKeyService.swift */; };
 		52E7DB612F11AA0000CCA28A /* AlertsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB602F11AA0000CCA28A /* AlertsService.swift */; };
 		52E7DB702F11BA0000CCA28A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB712F11BA0000CCA28A /* AppDelegate.swift */; };
 		52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */; };
 		52E7DB812F11CA0000CCA28A /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB802F11CA0000CCA28A /* AppConfig.swift */; };
+		52E7DB912F11DA0000CCA28A /* SettingsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB902F11DA0000CCA28A /* SettingsService.swift */; };
+		52E7DBA02F11EA0000CCA28A /* AppLockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DBA12F11EA0000CCA28A /* AppLockService.swift */; };
+		52E7DBA22F11EA0000CCA28A /* PINEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DBA32F11EA0000CCA28A /* PINEntryView.swift */; };
+		52E7DBB02F11FA0000CCA28A /* DoubleRatchet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DBB12F11FA0000CCA28A /* DoubleRatchet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -62,12 +67,17 @@
 		52E7DB352F118B0000CCA28A /* ComposeMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeMessageView.swift; sourceTree = "<group>"; };
 		52E7DB372F118B0000CCA28A /* MessagesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesTabView.swift; sourceTree = "<group>"; };
 		52E7DB412F118C0000CCA28A /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
+		52E7DBC12F120A0000CCA28A /* PendingMessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingMessageStore.swift; sourceTree = "<group>"; };
 		52E7DB502F119A0000CCA28A /* SenderKeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenderKeyService.swift; sourceTree = "<group>"; };
 		52E7DB602F11AA0000CCA28A /* AlertsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsService.swift; sourceTree = "<group>"; };
 		52E7DB712F11BA0000CCA28A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
 		52E7DB752F11BA0000CCA28A /* Kuurier.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Kuurier.entitlements; sourceTree = "<group>"; };
 		52E7DB802F11CA0000CCA28A /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		52E7DB902F11DA0000CCA28A /* SettingsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsService.swift; sourceTree = "<group>"; };
+		52E7DBA12F11EA0000CCA28A /* AppLockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLockService.swift; sourceTree = "<group>"; };
+		52E7DBA32F11EA0000CCA28A /* PINEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PINEntryView.swift; sourceTree = "<group>"; };
+		52E7DBB12F11FA0000CCA28A /* DoubleRatchet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleRatchet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,6 +120,7 @@
 		52E7DAE72F1151EC00CCA28A /* Crypto */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DBB12F11FA0000CCA28A /* DoubleRatchet.swift */,
 				52E7DAE62F1151EC00CCA28A /* KeyManager.swift */,
 				52E7DB502F119A0000CCA28A /* SenderKeyService.swift */,
 				52E7DB112F117A0000CCA28A /* SignalStore.swift */,
@@ -206,6 +217,7 @@
 		52E7DAF52F1151EC00CCA28A /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				52E7DB902F11DA0000CCA28A /* SettingsService.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -216,6 +228,15 @@
 				52E7DB732F11BA0000CCA28A /* PushNotificationService.swift */,
 			);
 			path = Push;
+			sourceTree = "<group>";
+		};
+		52E7DBA42F11EA0000CCA28A /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				52E7DBA12F11EA0000CCA28A /* AppLockService.swift */,
+				52E7DBA32F11EA0000CCA28A /* PINEntryView.swift */,
+			);
+			path = Security;
 			sourceTree = "<group>";
 		};
 		52E7DB042F1151EC00CCA28A /* Invites */ = {
@@ -250,6 +271,7 @@
 			children = (
 				52E7DB232F118A0000CCA28A /* MessagingService.swift */,
 				52E7DB412F118C0000CCA28A /* WebSocketService.swift */,
+				52E7DBC12F120A0000CCA28A /* PendingMessageStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -276,6 +298,7 @@
 				52E7DAF42F1151EC00CCA28A /* Map */,
 				52E7DB242F118A0000CCA28A /* Messaging */,
 				52E7DB742F11BA0000CCA28A /* Push */,
+				52E7DBA42F11EA0000CCA28A /* Security */,
 				52E7DAF52F1151EC00CCA28A /* Settings */,
 			);
 			path = Features;
@@ -395,11 +418,16 @@
 				52E7DB362F118B0000CCA28A /* ComposeMessageView.swift in Sources */,
 				52E7DB382F118B0000CCA28A /* MessagesTabView.swift in Sources */,
 				52E7DB402F118C0000CCA28A /* WebSocketService.swift in Sources */,
+				52E7DBC02F120A0000CCA28A /* PendingMessageStore.swift in Sources */,
 				52E7DB522F119A0000CCA28A /* SenderKeyService.swift in Sources */,
 				52E7DB612F11AA0000CCA28A /* AlertsService.swift in Sources */,
 				52E7DB702F11BA0000CCA28A /* AppDelegate.swift in Sources */,
 				52E7DB722F11BA0000CCA28A /* PushNotificationService.swift in Sources */,
 				52E7DB812F11CA0000CCA28A /* AppConfig.swift in Sources */,
+				52E7DB912F11DA0000CCA28A /* SettingsService.swift in Sources */,
+				52E7DBA02F11EA0000CCA28A /* AppLockService.swift in Sources */,
+				52E7DBA22F11EA0000CCA28A /* PINEntryView.swift in Sources */,
+				52E7DBB02F11FA0000CCA28A /* DoubleRatchet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

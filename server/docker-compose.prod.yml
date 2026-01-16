@@ -1,0 +1,131 @@
+services:
+  # ============================================
+  # INFRASTRUCTURE (shared)
+  # ============================================
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: kuurier-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-kuurier}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD required}
+      POSTGRES_DB: ${DB_NAME:-kuurier}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/000_complete_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-kuurier} -d ${DB_NAME:-kuurier}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kuurier-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: kuurier-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kuurier-net
+
+  # ============================================
+  # NGINX REVERSE PROXY
+  # ============================================
+
+  nginx:
+    image: nginx:alpine
+    container_name: kuurier-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/active.conf:/etc/nginx/conf.d/active.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - api-blue
+      - api-green
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - kuurier-net
+
+  # ============================================
+  # BLUE ENVIRONMENT (port 8080)
+  # ============================================
+
+  api-blue:
+    image: kuurier-server:${BLUE_VERSION:-latest}
+    container_name: kuurier-api-blue
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      ENVIRONMENT: production
+      DATABASE_URL: postgres://${DB_USER:-kuurier}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-kuurier}?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY required}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - kuurier-net
+
+  # ============================================
+  # GREEN ENVIRONMENT (port 8081)
+  # ============================================
+
+  api-green:
+    image: kuurier-server:${GREEN_VERSION:-latest}
+    container_name: kuurier-api-green
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      ENVIRONMENT: production
+      DATABASE_URL: postgres://${DB_USER:-kuurier}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-kuurier}?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY required}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - kuurier-net
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  kuurier-net:
+    driver: bridge
