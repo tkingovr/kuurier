@@ -27,13 +27,15 @@ CREATE TABLE users (
 CREATE INDEX idx_users_public_key ON users(public_key);
 
 -- Auth challenges for challenge-response authentication
+-- SECURITY: challenge_mac provides HMAC integrity protection to prevent forgery
 CREATE TABLE auth_challenges (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    challenge   VARCHAR(64) NOT NULL,
-    expires_at  TIMESTAMPTZ NOT NULL,
-    used_at     TIMESTAMPTZ,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    challenge       VARCHAR(64) NOT NULL,
+    challenge_mac   VARCHAR(64) NOT NULL,  -- HMAC-SHA256 for integrity verification
+    expires_at      TIMESTAMPTZ NOT NULL,
+    used_at         TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Index for challenge lookups

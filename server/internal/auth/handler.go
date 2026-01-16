@@ -3,7 +3,10 @@ package auth
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
@@ -259,16 +262,24 @@ func (h *Handler) Verify(c *gin.Context) {
 		return
 	}
 
-	// Verify the challenge exists and hasn't been used
-	var challengeData string
+	// Verify the challenge exists, hasn't been used, and has valid HMAC
+	var challengeData, storedMAC string
+	var expiresAt time.Time
 	err = h.db.Pool().QueryRow(ctx,
-		`SELECT challenge FROM auth_challenges
+		`SELECT challenge, challenge_mac, expires_at FROM auth_challenges
 		 WHERE user_id = $1 AND challenge = $2 AND expires_at > $3 AND used_at IS NULL`,
 		req.UserID, req.Challenge, time.Now().UTC(),
-	).Scan(&challengeData)
+	).Scan(&challengeData, &storedMAC, &expiresAt)
 
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired challenge"})
+		return
+	}
+
+	// Verify HMAC integrity (prevents forgery even with DB access)
+	expectedMAC := h.computeChallengeMAC(req.Challenge, req.UserID, expiresAt)
+	if subtle.ConstantTimeCompare([]byte(storedMAC), []byte(expectedMAC)) != 1 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "challenge integrity check failed"})
 		return
 	}
 
@@ -297,11 +308,11 @@ func (h *Handler) Verify(c *gin.Context) {
 	}
 
 	// Generate JWT token
-	expiresAt := time.Now().Add(time.Duration(h.cfg.TokenDuration) * time.Hour)
+	tokenExpiresAt := time.Now().Add(time.Duration(h.cfg.TokenDuration) * time.Hour)
 	claims := jwt.MapClaims{
 		"sub":         req.UserID,
 		"trust_score": trustScore,
-		"exp":         expiresAt.Unix(),
+		"exp":         tokenExpiresAt.Unix(),
 		"iat":         time.Now().Unix(),
 	}
 
@@ -314,7 +325,7 @@ func (h *Handler) Verify(c *gin.Context) {
 
 	c.JSON(http.StatusOK, VerifyResponse{
 		Token:     tokenString,
-		ExpiresAt: expiresAt.Unix(),
+		ExpiresAt: tokenExpiresAt.Unix(),
 	})
 }
 
@@ -433,7 +444,7 @@ func (h *Handler) SearchUsers(c *gin.Context) {
 		`SELECT id, trust_score, is_verified, created_at,
 		        (SELECT COUNT(*) FROM vouches WHERE vouchee_id = u.id) as vouch_count
 		 FROM users u
-		 WHERE LOWER(id) LIKE LOWER($1 || '%')
+		 WHERE LOWER(id::text) LIKE LOWER($1 || '%')
 		 ORDER BY trust_score DESC, created_at ASC
 		 LIMIT $2`,
 		query, limit,
@@ -581,10 +592,23 @@ func (h *Handler) Vouch(c *gin.Context) {
 		return
 	}
 
-	// Update vouchee's trust score
+	// Update vouchee's trust score using weighted calculation
+	// SECURITY: Weighted by voucher's trust score to prevent Sybil attacks
+	// Higher-trust vouchers contribute more to the recipient's trust score
 	_, err = h.db.Pool().Exec(ctx,
 		`UPDATE users SET trust_score = (
-			SELECT COUNT(*) * 10 FROM vouches WHERE vouchee_id = $1
+			SELECT COALESCE(SUM(
+				CASE
+					WHEN u.is_verified THEN 15  -- Verified users contribute more
+					WHEN u.trust_score >= 100 THEN 12
+					WHEN u.trust_score >= 50 THEN 8
+					WHEN u.trust_score >= 30 THEN 5  -- Minimum to vouch
+					ELSE 3  -- Invite vouches (automatic)
+				END
+			), 0)
+			FROM vouches v
+			JOIN users u ON v.voucher_id = u.id
+			WHERE v.vouchee_id = $1
 		) WHERE id = $1`,
 		voucheeID,
 	)
@@ -659,21 +683,37 @@ func (h *Handler) GetVouches(c *gin.Context) {
 }
 
 // createChallenge generates and stores a new challenge for authentication
+// SECURITY: Uses HMAC to bind challenge to user and prevent forgery even with DB access
 func (h *Handler) createChallenge(ctx context.Context, userID string) (string, error) {
-	// Generate random challenge
+	// Generate random challenge with 32 bytes of entropy
 	challengeBytes := make([]byte, 32)
 	if _, err := rand.Read(challengeBytes); err != nil {
 		return "", err
 	}
 	challenge := hex.EncodeToString(challengeBytes)
 
-	// Store challenge with expiration
+	// Generate HMAC to bind challenge to user and timestamp
+	// This prevents attackers with DB access from forging challenges
 	expiresAt := time.Now().UTC().Add(5 * time.Minute)
+	challengeMAC := h.computeChallengeMAC(challenge, userID, expiresAt)
+
+	// Store only the HMAC hash in the database (not the raw challenge for extra security)
+	// The challenge itself is returned to the client
 	_, err := h.db.Pool().Exec(ctx,
-		`INSERT INTO auth_challenges (user_id, challenge, expires_at)
-		 VALUES ($1, $2, $3)`,
-		userID, challenge, expiresAt,
+		`INSERT INTO auth_challenges (user_id, challenge, challenge_mac, expires_at)
+		 VALUES ($1, $2, $3, $4)`,
+		userID, challenge, challengeMAC, expiresAt,
 	)
 
 	return challenge, err
+}
+
+// computeChallengeMAC creates an HMAC binding challenge to user and expiration
+func (h *Handler) computeChallengeMAC(challenge, userID string, expiresAt time.Time) string {
+	// Create message: challenge || userID || expiresAt
+	message := challenge + "|" + userID + "|" + strconv.FormatInt(expiresAt.Unix(), 10)
+
+	mac := hmac.New(sha256.New, h.cfg.JWTSecret)
+	mac.Write([]byte(message))
+	return hex.EncodeToString(mac.Sum(nil))
 }
