@@ -2253,6 +2253,10 @@ struct CreateEventView: View {
     @State private var selectedCoordinate: CLLocationCoordinate2D?
     @State private var cameraPosition: MapCameraPosition = .automatic
 
+    // Error handling
+    @State private var showError = false
+    @State private var errorMessage = ""
+
     // Privacy
     @State private var locationVisibility: LocationVisibility = .public
     @State private var revealHoursBefore: Int = 1
@@ -2378,13 +2382,18 @@ struct CreateEventView: View {
             .interactiveDismissDisabled(eventsService.isCreating)
             .onAppear {
                 locationManager.requestPermission()
-                // Set initial camera to user location if available
+                // Set initial camera to do something useful here
                 if let location = locationManager.location {
                     cameraPosition = .region(MKCoordinateRegion(
                         center: location.coordinate,
                         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
                     ))
                 }
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage)
             }
         }
     }
@@ -2413,6 +2422,12 @@ struct CreateEventView: View {
 
         if success {
             dismiss()
+        } else if let error = eventsService.error {
+            errorMessage = error
+            showError = true
+        } else {
+            errorMessage = "Failed to create event. Please try again."
+            showError = true
         }
     }
 }
