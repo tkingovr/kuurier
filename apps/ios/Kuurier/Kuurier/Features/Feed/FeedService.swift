@@ -219,6 +219,12 @@ private struct CreatePostResponse: Decodable {
     let id: String
     let message: String
     let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case message
+        case createdAt = "created_at"
+    }
 }
 
 private struct EmptyBody: Encodable {}

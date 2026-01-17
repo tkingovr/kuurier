@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CryptoKit
 import Network
 import UIKit
 
@@ -209,10 +210,11 @@ final class WebSocketService: ObservableObject {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30
 
-        // Create URLSession
+        // Create URLSession with certificate pinning delegate
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = true
-        urlSession = URLSession(configuration: config)
+        let delegate = WebSocketCertificatePinningDelegate()
+        urlSession = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         webSocketTask = urlSession?.webSocketTask(with: request)
 
         webSocketTask?.resume()
@@ -589,4 +591,85 @@ private struct TypingPayload: Codable {
 
 private struct ErrorPayload: Codable {
     let error: String
+}
+
+// MARK: - Certificate Pinning Delegate for WebSocket
+
+/// URLSession delegate that performs certificate pinning for WebSocket connections
+/// This prevents MITM attacks by validating the server's public key
+final class WebSocketCertificatePinningDelegate: NSObject, URLSessionDelegate {
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        // Only handle server trust challenges
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let serverTrust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+
+        // Skip pinning in debug mode for easier development
+        #if DEBUG
+        completionHandler(.useCredential, URLCredential(trust: serverTrust))
+        return
+        #else
+
+        // Check if this host requires pinning
+        let host = challenge.protectionSpace.host
+        guard AppConfig.pinnedHosts.contains(host) else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+
+        // Verify the certificate chain
+        guard validateCertificateChain(serverTrust: serverTrust) else {
+            print("WebSocket certificate pinning failed for host: \(host)")
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+
+        completionHandler(.useCredential, URLCredential(trust: serverTrust))
+        #endif
+    }
+
+    /// Validates the server certificate chain against pinned public key hashes
+    private func validateCertificateChain(serverTrust: SecTrust) -> Bool {
+        // Get certificate chain
+        guard let certificateChain = SecTrustCopyCertificateChain(serverTrust) as? [SecCertificate],
+              !certificateChain.isEmpty else {
+            return false
+        }
+
+        // Check each certificate in the chain against our pinned hashes
+        for certificate in certificateChain {
+            let publicKeyHash = getPublicKeyHash(from: certificate)
+            if let hash = publicKeyHash,
+               AppConfig.pinnedPublicKeyHashes.contains(hash) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Extracts the SHA256 hash of the certificate's public key (SPKI)
+    private func getPublicKeyHash(from certificate: SecCertificate) -> String? {
+        guard let publicKey = SecCertificateCopyKey(certificate) else {
+            return nil
+        }
+
+        var error: Unmanaged<CFError>?
+        guard let publicKeyData = SecKeyCopyExternalRepresentation(publicKey, &error) as Data? else {
+            return nil
+        }
+
+        // Hash the public key data using CryptoKit SHA256
+        let hash = SHA256.hash(data: publicKeyData)
+
+        // Return base64-encoded hash
+        return Data(hash).base64EncodedString()
+    }
 }

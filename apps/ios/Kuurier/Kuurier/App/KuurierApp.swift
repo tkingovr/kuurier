@@ -13,6 +13,12 @@ struct KuurierApp: App {
     // Detect shake gesture for panic button
     @Environment(\.scenePhase) var scenePhase
 
+    init() {
+        // Validate security configuration on app startup
+        // This will crash in production if certificate pins aren't configured
+        AppConfig.validateCertificatePins()
+    }
+
     var body: some Scene {
         WindowGroup {
             ZStack {

@@ -258,6 +258,41 @@ final class SignalStore {
 
         SecItemDelete(query as CFDictionary)
     }
+
+    // MARK: - Double Ratchet Session Storage
+
+    private let sessionPrefix = "signal.session."
+
+    /// Stores a Double Ratchet session state
+    func storeSession(_ state: DoubleRatchet.SessionState, for recipientId: String) throws {
+        let data = try DoubleRatchet.serializeState(state)
+        try setData(data, forKey: sessionPrefix + recipientId)
+    }
+
+    /// Retrieves a Double Ratchet session state
+    func getSession(for recipientId: String) -> DoubleRatchet.SessionState? {
+        guard let data = getData(forKey: sessionPrefix + recipientId) else {
+            return nil
+        }
+        return try? DoubleRatchet.deserializeState(data)
+    }
+
+    /// Deletes a session with a specific user
+    func deleteSession(for recipientId: String) {
+        delete(key: sessionPrefix + recipientId)
+    }
+
+    /// Checks if a session exists with a user
+    func hasSession(with recipientId: String) -> Bool {
+        return getData(forKey: sessionPrefix + recipientId) != nil
+    }
+
+    /// Lists all session user IDs
+    func listSessionIds() -> [String] {
+        // This is a simplified implementation
+        // In production, you might want to track session IDs separately
+        return []
+    }
 }
 
 // MARK: - Errors

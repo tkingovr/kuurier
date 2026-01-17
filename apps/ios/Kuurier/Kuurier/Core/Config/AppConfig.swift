@@ -7,21 +7,25 @@ enum AppConfig {
     // MARK: - API Configuration
 
     /// Base URL for the API server
-    /// DEBUG: Uses localhost for development
-    /// RELEASE: Uses production server
+    /// Set useProductionServer to true to test against production in DEBUG builds
     static var apiBaseURL: URL {
         #if DEBUG
+        if useProductionServer {
+            return URL(string: productionAPIURL)!
+        }
         // Development - local server
         return URL(string: "http://localhost:8080/api/v1")!
         #else
-        // Production - change this to your server URL
+        // Production
         return URL(string: productionAPIURL)!
         #endif
     }
 
+    /// Set to true to use production server in DEBUG builds (for testing)
+    static let useProductionServer = true
+
     /// Production API URL
-    /// IMPORTANT: Change this before releasing to App Store!
-    private static let productionAPIURL = "https://api.kuurier.app/api/v1"
+    private static let productionAPIURL = "https://api.kuurier.com/api/v1"
 
     // MARK: - App Information
 
@@ -73,7 +77,7 @@ enum AppConfig {
     ///   openssl dgst -sha256 -binary | base64
     ///
     /// # From a live server:
-    /// openssl s_client -connect api.kuurier.app:443 2>/dev/null | \
+    /// openssl s_client -connect api.kuurier.com:443 2>/dev/null | \
     ///   openssl x509 -pubkey -noout | \
     ///   openssl pkey -pubin -outform DER | \
     ///   openssl dgst -sha256 -binary | base64
@@ -81,23 +85,53 @@ enum AppConfig {
     ///
     /// IMPORTANT: Include at least 2 pins (primary + backup) to avoid lockout
     /// during certificate rotation. The backup can be a new key pair stored securely.
+    ///
+    /// DEPLOYMENT CHECKLIST:
+    /// 1. Generate primary pin from your production TLS certificate
+    /// 2. Generate backup pin from a securely stored backup key pair
+    /// 3. Replace PLACEHOLDER values below before App Store submission
+    /// 4. Test certificate pinning in staging environment first
     static let pinnedPublicKeyHashes: [String] = [
         // Primary: Current production server public key
-        // TODO: Replace with actual hash before production deployment
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        // PLACEHOLDER - Must be replaced before production deployment!
+        "PLACEHOLDER_PRIMARY_CERTIFICATE_PIN_REPLACE_BEFORE_DEPLOY",
 
         // Backup: Secondary key for rotation (generate and store securely)
-        // TODO: Replace with actual backup hash
-        "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+        // PLACEHOLDER - Must be replaced before production deployment!
+        "PLACEHOLDER_BACKUP_CERTIFICATE_PIN_REPLACE_BEFORE_DEPLOY",
 
-        // Let's Encrypt ISRG Root X1 (optional fallback)
+        // Let's Encrypt ISRG Root X1 (common CA - provides fallback during rotation)
         "C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=",
     ]
+
+    /// Validates that certificate pins have been configured for production
+    /// Call this during app startup in production builds
+    static func validateCertificatePins() {
+        #if !DEBUG
+        let placeholderPins = pinnedPublicKeyHashes.filter { $0.hasPrefix("PLACEHOLDER") }
+        if !placeholderPins.isEmpty {
+            // In production, crash early if pins aren't configured
+            // This prevents shipping an insecure app
+            fatalError("""
+                SECURITY ERROR: Certificate pins have not been configured!
+
+                Found \(placeholderPins.count) placeholder pin(s) in AppConfig.swift.
+
+                Before deploying to production:
+                1. Generate your server's certificate pin
+                2. Replace PLACEHOLDER values in pinnedPublicKeyHashes
+                3. Test certificate pinning in staging
+
+                The app cannot run in production with placeholder pins.
+                """)
+        }
+        #endif
+    }
 
     /// Hosts that require certificate pinning
     /// Only these hosts will have their certificates validated against pins
     static let pinnedHosts: Set<String> = [
-        "api.kuurier.app",
+        "api.kuurier.com",
         // Add additional API hosts here if needed
     ]
 
