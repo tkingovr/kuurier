@@ -1,6 +1,14 @@
 name: Deploy
 
 on:
+  # Auto-deploy when pushing to main
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - '.github/workflows/deploy.yml'
+
+  # Manual deployment trigger
   workflow_dispatch:
     inputs:
       environment:
@@ -11,11 +19,6 @@ on:
         options:
           - production
           - staging
-
-# Uncomment to auto-deploy on merge to main:
-# on:
-#   push:
-#     branches: [main]
 
 jobs:
   deploy:
@@ -34,17 +37,21 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            cd /opt/kuurier
+            cd /opt/kuurier/server
 
             # Pull latest code
             git fetch origin
             git reset --hard origin/${{ github.ref_name }}
 
-            # Run deployment
-            ./deploy.sh
+            # Rebuild and restart
+            docker compose -f docker-compose.prod.yml down
+            docker build -t kuurier-server:latest .
+            docker compose -f docker-compose.prod.yml up -d
+
+            # Wait for services to start
+            sleep 15
 
             # Verify health
-            sleep 10
             curl -sf http://localhost/health || exit 1
 
             echo "Deployment successful!"
