@@ -1684,6 +1684,61 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 }
 
+// MARK: - Location Search Completer
+
+class LocationSearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
+    @Published var suggestions: [MKLocalSearchCompletion] = []
+    @Published var isSearching = false
+
+    private let completer = MKLocalSearchCompleter()
+
+    override init() {
+        super.init()
+        completer.delegate = self
+        completer.resultTypes = [.pointOfInterest, .address]
+    }
+
+    func search(query: String) {
+        guard !query.isEmpty else {
+            suggestions = []
+            return
+        }
+        isSearching = true
+        completer.queryFragment = query
+    }
+
+    func clear() {
+        suggestions = []
+        completer.queryFragment = ""
+    }
+
+    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        isSearching = false
+        suggestions = completer.results
+    }
+
+    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        isSearching = false
+        suggestions = []
+    }
+
+    func getCoordinate(for completion: MKLocalSearchCompletion) async -> (coordinate: CLLocationCoordinate2D, name: String)? {
+        let request = MKLocalSearch.Request(completion: completion)
+        let search = MKLocalSearch(request: request)
+
+        do {
+            let response = try await search.start()
+            if let item = response.mapItems.first {
+                let name = item.name ?? completion.title
+                return (item.placemark.coordinate, name)
+            }
+        } catch {
+            print("Location search error: \(error)")
+        }
+        return nil
+    }
+}
+
 struct EventsView: View {
     @EnvironmentObject var authService: AuthService
     @StateObject private var eventsService = EventsService.shared
@@ -2252,10 +2307,20 @@ struct CreateEventView: View {
     @State private var locationArea = ""
     @State private var selectedCoordinate: CLLocationCoordinate2D?
     @State private var cameraPosition: MapCameraPosition = .automatic
+    @StateObject private var searchCompleter = LocationSearchCompleter()
+    @State private var showSuggestions = false
+    @FocusState private var isLocationFieldFocused: Bool
+
+    // Error handling
+    @State private var showError = false
+    @State private var errorMessage = ""
 
     // Privacy
     @State private var locationVisibility: LocationVisibility = .public
     @State private var revealHoursBefore: Int = 1
+
+    // Chat
+    @State private var enableChat = false
 
     private var isValid: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -2297,25 +2362,29 @@ struct CreateEventView: View {
                 // Location
                 Section {
                     // Map for location selection
-                    Map(position: $cameraPosition, interactionModes: [.all]) {
-                        if let coord = selectedCoordinate {
-                            Marker("Event Location", coordinate: coord)
+                    MapReader { proxy in
+                        Map(position: $cameraPosition, interactionModes: [.all]) {
+                            if let coord = selectedCoordinate {
+                                Marker("Event Location", coordinate: coord)
+                            }
+                            UserAnnotation()
                         }
-                        UserAnnotation()
-                    }
-                    .frame(height: 200)
-                    .cornerRadius(8)
-                    .onTapGesture { location in
-                        // Note: In a real implementation, we'd convert tap to coordinate
-                    }
-                    .overlay(alignment: .bottom) {
-                        if selectedCoordinate == nil {
-                            Text("Tap to place marker or use current location")
-                                .font(.caption)
-                                .padding(8)
-                                .background(.ultraThinMaterial)
-                                .cornerRadius(8)
-                                .padding(8)
+                        .frame(height: 200)
+                        .cornerRadius(8)
+                        .onTapGesture { location in
+                            if let coordinate = proxy.convert(location, from: .local) {
+                                selectedCoordinate = coordinate
+                            }
+                        }
+                        .overlay(alignment: .bottom) {
+                            if selectedCoordinate == nil {
+                                Text("Tap to place marker or use current location")
+                                    .font(.caption)
+                                    .padding(8)
+                                    .background(.ultraThinMaterial)
+                                    .cornerRadius(8)
+                                    .padding(8)
+                            }
                         }
                     }
 
@@ -2331,7 +2400,52 @@ struct CreateEventView: View {
                         Label("Use Current Location", systemImage: "location.fill")
                     }
 
-                    TextField("Location Name (e.g., City Hall Steps)", text: $locationName)
+                    // Location search with autocomplete
+                    VStack(alignment: .leading, spacing: 0) {
+                        TextField("Search for a place...", text: $locationName)
+                            .focused($isLocationFieldFocused)
+                            .onChange(of: locationName) { _, newValue in
+                                searchCompleter.search(query: newValue)
+                                showSuggestions = !newValue.isEmpty
+                            }
+                            .onChange(of: isLocationFieldFocused) { _, focused in
+                                if !focused {
+                                    // Delay hiding to allow tap on suggestion
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                        showSuggestions = false
+                                    }
+                                }
+                            }
+
+                        // Autocomplete suggestions
+                        if showSuggestions && !searchCompleter.suggestions.isEmpty {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(searchCompleter.suggestions.prefix(5), id: \.self) { suggestion in
+                                    Button {
+                                        selectSuggestion(suggestion)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(suggestion.title)
+                                                .font(.subheadline)
+                                                .foregroundColor(.primary)
+                                            if !suggestion.subtitle.isEmpty {
+                                                Text(suggestion.subtitle)
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 8)
+                                        .padding(.horizontal, 4)
+                                    }
+                                    Divider()
+                                }
+                            }
+                            .background(Color(.systemBackground))
+                            .cornerRadius(8)
+                            .shadow(radius: 2)
+                        }
+                    }
                 } header: {
                     Text("Location")
                 } footer: {
@@ -2360,6 +2474,13 @@ struct CreateEventView: View {
                 } footer: {
                     Text(locationVisibility.description)
                 }
+
+                // Event Chat
+                Section {
+                    Toggle("Enable Event Chat", isOn: $enableChat)
+                } footer: {
+                    Text("Create a discussion channel where attendees can coordinate and get updates.")
+                }
             }
             .navigationTitle("New Event")
             .navigationBarTitleDisplayMode(.inline)
@@ -2378,12 +2499,36 @@ struct CreateEventView: View {
             .interactiveDismissDisabled(eventsService.isCreating)
             .onAppear {
                 locationManager.requestPermission()
-                // Set initial camera to user location if available
+                // Set initial camera to do something useful here
                 if let location = locationManager.location {
                     cameraPosition = .region(MKCoordinateRegion(
                         center: location.coordinate,
                         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
                     ))
+                }
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage)
+            }
+        }
+    }
+
+    private func selectSuggestion(_ suggestion: MKLocalSearchCompletion) {
+        isLocationFieldFocused = false
+        showSuggestions = false
+
+        Task {
+            if let result = await searchCompleter.getCoordinate(for: suggestion) {
+                await MainActor.run {
+                    locationName = result.name
+                    selectedCoordinate = result.coordinate
+                    cameraPosition = .region(MKCoordinateRegion(
+                        center: result.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                    ))
+                    searchCompleter.clear()
                 }
             }
         }
@@ -2408,11 +2553,18 @@ struct CreateEventView: View {
             locationVisibility: locationVisibility,
             locationRevealAt: revealAt,
             startsAt: startsAt,
-            endsAt: hasEndTime ? endsAt : nil
+            endsAt: hasEndTime ? endsAt : nil,
+            enableChat: enableChat
         )
 
         if success {
             dismiss()
+        } else if let error = eventsService.error {
+            errorMessage = error
+            showError = true
+        } else {
+            errorMessage = "Failed to create event. Please try again."
+            showError = true
         }
     }
 }

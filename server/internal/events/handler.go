@@ -37,6 +37,7 @@ type CreateEventRequest struct {
 	StartsAt           int64    `json:"starts_at" binding:"required"` // Unix timestamp
 	EndsAt             *int64   `json:"ends_at"`
 	TopicIDs           []string `json:"topic_ids"`
+	EnableChat         *bool    `json:"enable_chat"`          // Whether to create event discussion channel
 }
 
 // shouldRevealLocation determines if location should be shown based on visibility settings
@@ -205,8 +206,10 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	eventID := uuid.New().String()
-	channelID := uuid.New().String()
 	now := time.Now().UTC()
+
+	// Default enableChat to false if not specified
+	enableChat := req.EnableChat != nil && *req.EnableChat
 
 	startsAt := time.Unix(req.StartsAt, 0)
 	var endsAt *time.Time
@@ -247,40 +250,51 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 	}
 	defer tx.Rollback(ctx)
 
-	// Create the event
+	// Create the event first (without channel_id to avoid FK violation)
 	_, err = tx.Exec(ctx, `
 		INSERT INTO events (id, organizer_id, title, description, event_type, location, location_name,
-		                    location_area, location_visibility, location_reveal_at, starts_at, ends_at, channel_id)
-		VALUES ($1, $2, $3, $4, $5, ST_GeogFromText($6), $7, $8, $9, $10, $11, $12, $13)
+		                    location_area, location_visibility, location_reveal_at, starts_at, ends_at)
+		VALUES ($1, $2, $3, $4, $5, ST_GeogFromText($6), $7, $8, $9, $10, $11, $12)
 	`, eventID, userID, req.Title, req.Description, req.EventType, locationSQL,
-		req.LocationName, req.LocationArea, visibility, revealAt, startsAt, endsAt, channelID)
+		req.LocationName, req.LocationArea, visibility, revealAt, startsAt, endsAt)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create event"})
 		return
 	}
 
-	// Create the event channel
-	channelName := "Event: " + req.Title
-	_, err = tx.Exec(ctx, `
-		INSERT INTO channels (id, name, description, type, event_id, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, 'event', $4, $5, $6, $6)
-	`, channelID, channelName, req.Description, eventID, userID, now)
+	// Optionally create the event channel
+	var channelID string
+	if enableChat {
+		channelID = uuid.New().String()
+		channelName := "Event: " + req.Title
+		_, err = tx.Exec(ctx, `
+			INSERT INTO channels (id, name, description, type, event_id, created_by, created_at, updated_at)
+			VALUES ($1, $2, $3, 'event', $4, $5, $6, $6)
+		`, channelID, channelName, req.Description, eventID, userID, now)
 
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create event channel"})
-		return
-	}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create event channel"})
+			return
+		}
 
-	// Add organizer as channel admin
-	_, err = tx.Exec(ctx, `
-		INSERT INTO channel_members (channel_id, user_id, role, joined_at)
-		VALUES ($1, $2, 'admin', $3)
-	`, channelID, userID, now)
+		// Link the channel back to the event
+		_, err = tx.Exec(ctx, `UPDATE events SET channel_id = $1 WHERE id = $2`, channelID, eventID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to link event channel"})
+			return
+		}
 
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add organizer to channel"})
-		return
+		// Add organizer as channel admin
+		_, err = tx.Exec(ctx, `
+			INSERT INTO channel_members (channel_id, user_id, role, joined_at)
+			VALUES ($1, $2, 'admin', $3)
+		`, channelID, userID, now)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add organizer to channel"})
+			return
+		}
 	}
 
 	// Commit transaction
@@ -297,11 +311,14 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 		`, eventID, topicID)
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"id":         eventID,
-		"channel_id": channelID,
-		"message":    "event created",
-	})
+	response := gin.H{
+		"id":      eventID,
+		"message": "event created",
+	}
+	if channelID != "" {
+		response["channel_id"] = channelID
+	}
+	c.JSON(http.StatusCreated, response)
 }
 
 // GetEvent returns a single event

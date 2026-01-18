@@ -10,17 +10,36 @@ struct User: Codable, Identifiable {
     let isVerified: Bool
     let createdAt: Date
     let vouchCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case trustScore = "trust_score"
+        case isVerified = "is_verified"
+        case createdAt = "created_at"
+        case vouchCount = "vouch_count"
+    }
 }
 
 struct AuthChallenge: Codable {
     let userId: String
     let challenge: String
-    let expiresAt: Int64?
+    let trustScore: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case challenge
+        case trustScore = "trust_score"
+    }
 }
 
 struct AuthToken: Codable {
     let token: String
     let expiresAt: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case token
+        case expiresAt = "expires_at"
+    }
 }
 
 // MARK: - Posts & Feed
@@ -36,6 +55,19 @@ struct Post: Codable, Identifiable {
     let createdAt: Date
     let verificationScore: Int
     let media: [PostMedia]?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case authorId = "author_id"
+        case content
+        case sourceType = "source_type"
+        case location
+        case locationName = "location_name"
+        case urgency
+        case createdAt = "created_at"
+        case verificationScore = "verification_score"
+        case media
+    }
 }
 
 struct PostMedia: Codable, Identifiable {
@@ -147,6 +179,16 @@ struct Subscription: Codable, Identifiable {
     let minUrgency: Int
     let digestMode: DigestMode
     let isActive: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case topic
+        case location
+        case radiusMeters = "radius_meters"
+        case minUrgency = "min_urgency"
+        case digestMode = "digest_mode"
+        case isActive = "is_active"
+    }
 }
 
 enum DigestMode: String, Codable {
@@ -387,6 +429,14 @@ struct HeatmapCell: Codable {
     let count: Int
     let maxUrgency: Int
     let heatLevel: String
+
+    enum CodingKeys: String, CodingKey {
+        case latitude
+        case longitude
+        case count
+        case maxUrgency = "max_urgency"
+        case heatLevel = "heat_level"
+    }
 }
 
 struct MapCluster: Codable {
@@ -401,6 +451,19 @@ struct MapCluster: Codable {
     let sourceType: String?
     let urgency: Int?
     let createdAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case latitude
+        case longitude
+        case count
+        case maxUrgency = "max_urgency"
+        case id
+        case content
+        case sourceType = "source_type"
+        case urgency
+        case createdAt = "created_at"
+    }
 }
 
 // MARK: - API Responses
@@ -432,6 +495,11 @@ struct SubscriptionsResponse: Codable {
 struct HeatmapResponse: Codable {
     let cells: [HeatmapCell]
     let gridSize: String
+
+    enum CodingKeys: String, CodingKey {
+        case cells
+        case gridSize = "grid_size"
+    }
 }
 
 struct ClustersResponse: Codable {
@@ -472,6 +540,17 @@ struct InviteCode: Codable, Identifiable {
     let expiresAt: Date
     let usedAt: Date?
     let status: InviteStatus
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case code
+        case inviterId = "inviter_id"
+        case inviteeId = "invitee_id"
+        case createdAt = "created_at"
+        case expiresAt = "expires_at"
+        case usedAt = "used_at"
+        case status
+    }
 }
 
 enum InviteStatus: String, Codable {
@@ -486,6 +565,14 @@ struct InvitesResponse: Codable {
     let usedCount: Int
     let activeCount: Int
     let availableToMake: Int
+
+    enum CodingKeys: String, CodingKey {
+        case invites
+        case totalAllowance = "total_allowance"
+        case usedCount = "used_count"
+        case activeCount = "active_count"
+        case availableToMake = "available_to_make"
+    }
 }
 
 struct GenerateInviteResponse: Codable {
@@ -493,6 +580,13 @@ struct GenerateInviteResponse: Codable {
     let code: String
     let expiresAt: Date
     let message: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case code
+        case expiresAt = "expires_at"
+        case message
+    }
 }
 
 // MARK: - User Profile

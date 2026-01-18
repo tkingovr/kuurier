@@ -237,6 +237,16 @@ private struct CreateAlertRequest: Encodable {
     let longitude: Double
     let locationName: String?
     let radiusMeters: Int
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case description
+        case severity
+        case latitude
+        case longitude
+        case locationName = "location_name"
+        case radiusMeters = "radius_meters"
+    }
 }
 
 private struct UpdateAlertStatusRequest: Encodable {
@@ -248,6 +258,13 @@ private struct RespondToAlertRequest: Encodable {
     let etaMinutes: Int?
     let latitude: Double?
     let longitude: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case etaMinutes = "eta_minutes"
+        case latitude
+        case longitude
+    }
 }
 
 // MARK: - Response Types

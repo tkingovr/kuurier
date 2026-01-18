@@ -6,6 +6,7 @@ struct PINEntryView: View {
     @StateObject private var appLockService = AppLockService.shared
     @State private var enteredPIN = ""
     @State private var showError = false
+    @State private var errorMessage = "Incorrect PIN"
     @State private var attempts = 0
 
     private let maxDigits = 6
@@ -42,10 +43,11 @@ struct PINEntryView: View {
 
                 // Error message
                 if showError {
-                    Text("Incorrect PIN")
+                    Text(errorMessage)
                         .font(.caption)
                         .foregroundColor(.red)
                         .transition(.opacity)
+                        .multilineTextAlignment(.center)
                 }
 
                 Spacer()
@@ -138,19 +140,38 @@ struct PINEntryView: View {
             enteredPIN = ""
             attempts = 0
 
-        case .duress:
-            // Duress PIN entered - data wiped, appear as if logged out
+        case .duress, .maxAttemptsReached:
+            // Duress PIN entered OR max attempts reached - data wiped, appear as if logged out
             // The app will show the login screen since auth state was cleared
             enteredPIN = ""
             attempts = 0
 
-        case .failure:
+        case .failure(let attemptsRemaining):
             // Wrong PIN
             attempts += 1
             withAnimation {
                 showError = true
+                errorMessage = "Wrong PIN. \(attemptsRemaining) attempts remaining."
             }
             enteredPIN = ""
+
+            // Add haptic feedback
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.error)
+
+        case .lockedOut(let until):
+            // Too many failed attempts
+            enteredPIN = ""
+            let formatter = DateComponentsFormatter()
+            formatter.allowedUnits = [.minute, .second]
+            formatter.unitsStyle = .abbreviated
+            let timeRemaining = until.timeIntervalSinceNow
+            let formattedTime = formatter.string(from: timeRemaining) ?? "a few minutes"
+
+            withAnimation {
+                showError = true
+                errorMessage = "Too many attempts. Try again in \(formattedTime)."
+            }
 
             // Add haptic feedback
             let generator = UINotificationFeedbackGenerator()
@@ -415,14 +436,25 @@ struct PINSetupView: View {
     private func validateCurrentPIN() {
         // Verify the current PIN is correct
         let result = appLockService.attemptUnlock(with: currentPIN)
-        if result == .success {
+        if case .success = result {
             // Re-lock since we just want to verify, not actually unlock
             if appLockService.isAppLockEnabled {
                 appLockService.lockApp()
             }
             step = .enterNew
         } else {
-            errorMessage = "Incorrect PIN"
+            switch result {
+            case .failure(let remaining):
+                errorMessage = "Incorrect PIN. \(remaining) attempts remaining."
+            case .lockedOut(let until):
+                let formatter = DateComponentsFormatter()
+                formatter.allowedUnits = [.minute, .second]
+                formatter.unitsStyle = .abbreviated
+                let formattedTime = formatter.string(from: until.timeIntervalSinceNow) ?? "a few minutes"
+                errorMessage = "Too many attempts. Try again in \(formattedTime)."
+            default:
+                errorMessage = "Incorrect PIN"
+            }
             currentPIN = ""
             let generator = UINotificationFeedbackGenerator()
             generator.notificationOccurred(.error)

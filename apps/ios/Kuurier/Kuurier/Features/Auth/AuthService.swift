@@ -98,10 +98,11 @@ final class AuthService: ObservableObject {
             // Base64 encode the public key
             let publicKeyBase64 = publicKey.base64EncodedString()
 
-            // Build request body with invite code for new registrations
+            // Build request body - always include invite code if provided
+            // Server will ignore it for existing users
             let requestBody = RegisterRequest(
                 publicKey: publicKeyBase64,
-                inviteCode: hasExistingKey ? nil : inviteCode
+                inviteCode: inviteCode
             )
 
             // Request challenge from server
@@ -211,4 +212,9 @@ private struct EmptyBody: Encodable {}
 private struct RegisterRequest: Encodable {
     let publicKey: String
     let inviteCode: String?
+
+    enum CodingKeys: String, CodingKey {
+        case publicKey = "public_key"
+        case inviteCode = "invite_code"
+    }
 }

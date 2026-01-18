@@ -69,7 +69,8 @@ final class EventsService: ObservableObject {
         locationVisibility: LocationVisibility,
         locationRevealAt: Date?,
         startsAt: Date,
-        endsAt: Date?
+        endsAt: Date?,
+        enableChat: Bool
     ) async -> Bool {
         guard !isCreating else { return false }
 
@@ -88,7 +89,8 @@ final class EventsService: ObservableObject {
                 locationVisibility: locationVisibility.rawValue,
                 locationRevealAt: locationRevealAt.map { Int($0.timeIntervalSince1970) },
                 startsAt: Int(startsAt.timeIntervalSince1970),
-                endsAt: endsAt.map { Int($0.timeIntervalSince1970) }
+                endsAt: endsAt.map { Int($0.timeIntervalSince1970) },
+                enableChat: enableChat
             )
 
             let _: CreateEventResponse = try await api.post("/events", body: request)
@@ -250,6 +252,22 @@ private struct CreateEventRequest: Encodable {
     let locationRevealAt: Int?
     let startsAt: Int
     let endsAt: Int?
+    let enableChat: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case description
+        case eventType = "event_type"
+        case latitude
+        case longitude
+        case locationName = "location_name"
+        case locationArea = "location_area"
+        case locationVisibility = "location_visibility"
+        case locationRevealAt = "location_reveal_at"
+        case startsAt = "starts_at"
+        case endsAt = "ends_at"
+        case enableChat = "enable_chat"
+    }
 }
 
 private struct UpdateEventRequest: Encodable {
@@ -260,6 +278,16 @@ private struct UpdateEventRequest: Encodable {
     let locationVisibility: String?
     let locationRevealAt: Int?
     let isCancelled: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case description
+        case locationName = "location_name"
+        case locationArea = "location_area"
+        case locationVisibility = "location_visibility"
+        case locationRevealAt = "location_reveal_at"
+        case isCancelled = "is_cancelled"
+    }
 }
 
 private struct RSVPRequest: Encodable {

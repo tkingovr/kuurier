@@ -16,12 +16,18 @@ final class SenderKeyService: ObservableObject {
 
     private let api = APIClient.shared
     private let secureStorage = SecureStorage.shared
+    private let signalService = SignalService.shared
 
     // Local cache of sender keys: channelId -> (userId -> SenderKey)
     private var senderKeyCache: [String: [String: SenderKeyData]] = [:]
 
     // Our sender keys: channelId -> OwnSenderKey
     private var ownSenderKeys: [String: OwnSenderKey] = [:]
+
+    // SECURITY: Track seen iterations per sender per channel to prevent replay attacks
+    // Format: channelId -> (userId -> Set of seen iterations)
+    private var seenIterations: [String: [String: Set<Int>]] = [:]
+    private let maxSeenIterationsPerSender = 1000 // Limit memory usage
 
     // Key for storing own sender keys in UserDefaults (encrypted data stored in Keychain)
     private let ownSenderKeysStorageKey = "com.kuurier.ownSenderKeys"
@@ -131,32 +137,87 @@ final class SenderKeyService: ObservableObject {
 
     // MARK: - Key Distribution
 
-    /// Uploads our sender key to the server
+    /// Uploads our sender key to the server (encrypted for each member)
+    /// The sender key is encrypted using each member's Double Ratchet session
+    /// so the server never sees the plaintext key
     private func uploadSenderKey(for channelId: String, senderKey: OwnSenderKey) async throws {
-        let keyData = senderKey.chainKey.withUnsafeBytes { Data($0) }
+        // Get channel members from server
+        let membersResponse: ChannelMembersResponse = try await api.get("/groups/\(channelId)/members")
 
-        let request = UploadSenderKeyRequest(
+        let keyData = senderKey.chainKey.withUnsafeBytes { Data($0) }
+        let currentUserId = secureStorage.userID ?? ""
+
+        // Create sender key distribution message
+        let distributionMessage = SenderKeyDistributionData(
+            distributionId: senderKey.distributionId,
+            chainKey: keyData.base64EncodedString(),
+            iteration: senderKey.iteration
+        )
+
+        let distributionData = try JSONEncoder().encode(distributionMessage)
+
+        // Encrypt for each member (except ourselves)
+        var encryptedKeys: [EncryptedSenderKeyRequest] = []
+
+        for member in membersResponse.members where member.userId != currentUserId {
+            do {
+                // Encrypt using their Double Ratchet session
+                let encryptedData = try await signalService.encrypt(distributionData, for: member.userId)
+
+                encryptedKeys.append(EncryptedSenderKeyRequest(
+                    recipientId: member.userId,
+                    encryptedKey: encryptedData.base64EncodedString()
+                ))
+            } catch {
+                // If we don't have a session with this user, skip them
+                // They'll request the key when they need it
+                print("Could not encrypt sender key for \(member.userId): \(error)")
+            }
+        }
+
+        // Upload all encrypted keys
+        let request = UploadEncryptedSenderKeysRequest(
             channelId: channelId,
             distributionId: senderKey.distributionId,
-            senderKey: keyData.base64EncodedString()
+            encryptedKeys: encryptedKeys
         )
 
         let _: MessageResponse = try await api.post("/groups/sender-key", body: request)
     }
 
-    /// Fetches all sender keys for a channel
+    /// Fetches all sender keys for a channel (encrypted for us)
+    /// Each key is decrypted using the sender's Double Ratchet session
     func fetchSenderKeys(for channelId: String) async throws {
-        let response: SenderKeysResponse = try await api.get("/groups/\(channelId)/sender-keys")
+        let response: EncryptedSenderKeysResponse = try await api.get("/groups/\(channelId)/sender-keys")
 
         var channelKeys: [String: SenderKeyData] = [:]
-        for key in response.senderKeys {
-            if let keyData = Data(base64Encoded: key.senderKey) {
+
+        for encryptedKey in response.senderKeys {
+            guard let encryptedData = Data(base64Encoded: encryptedKey.encryptedKey) else {
+                continue
+            }
+
+            do {
+                // Decrypt using sender's Double Ratchet session
+                let decryptedData = try await signalService.decrypt(encryptedData, from: encryptedKey.senderId)
+
+                // Parse the distribution message
+                let distributionMessage = try JSONDecoder().decode(SenderKeyDistributionData.self, from: decryptedData)
+
+                guard let keyData = Data(base64Encoded: distributionMessage.chainKey) else {
+                    continue
+                }
+
                 let chainKey = SymmetricKey(data: keyData)
-                channelKeys[key.userId] = SenderKeyData(
-                    distributionId: key.distributionId,
+                channelKeys[encryptedKey.senderId] = SenderKeyData(
+                    distributionId: distributionMessage.distributionId,
                     chainKey: chainKey,
-                    iteration: key.iteration
+                    iteration: distributionMessage.iteration
                 )
+            } catch {
+                // If decryption fails, skip this key
+                // This could happen if the session was reset
+                print("Could not decrypt sender key from \(encryptedKey.senderId): \(error)")
             }
         }
 
@@ -207,6 +268,7 @@ final class SenderKeyService: ObservableObject {
     }
 
     /// Decrypts a group message using the sender's key
+    /// SECURITY: Validates iteration to prevent replay attacks
     func decryptFromGroup(_ ciphertext: GroupCiphertext, from senderId: String, channelId: String) async throws -> Data {
         // Check if this is our own message
         let currentUserId = secureStorage.userID
@@ -232,6 +294,11 @@ final class SenderKeyService: ObservableObject {
             throw SenderKeyError.invalidDistributionId
         }
 
+        // SECURITY: Check for replay attack - reject already-seen iterations
+        if isIterationSeen(iteration: ciphertext.iteration, from: senderId, in: channelId) {
+            throw SenderKeyError.replayAttackDetected
+        }
+
         // Derive message key at the correct iteration
         let messageKey = deriveMessageKey(from: chainKey, iteration: ciphertext.iteration)
 
@@ -239,7 +306,45 @@ final class SenderKeyService: ObservableObject {
         let sealedBox = try AES.GCM.SealedBox(combined: ciphertext.ciphertext)
         let plaintext = try AES.GCM.open(sealedBox, using: messageKey)
 
+        // Mark iteration as seen after successful decryption
+        markIterationSeen(iteration: ciphertext.iteration, from: senderId, in: channelId)
+
         return plaintext
+    }
+
+    // MARK: - Replay Attack Prevention
+
+    /// Checks if an iteration has already been seen (potential replay attack)
+    private func isIterationSeen(iteration: Int, from senderId: String, in channelId: String) -> Bool {
+        guard let channelIterations = seenIterations[channelId],
+              let senderIterations = channelIterations[senderId] else {
+            return false
+        }
+        return senderIterations.contains(iteration)
+    }
+
+    /// Marks an iteration as seen for replay detection
+    private func markIterationSeen(iteration: Int, from senderId: String, in channelId: String) {
+        // Initialize nested dictionaries if needed
+        if seenIterations[channelId] == nil {
+            seenIterations[channelId] = [:]
+        }
+        if seenIterations[channelId]?[senderId] == nil {
+            seenIterations[channelId]?[senderId] = Set()
+        }
+
+        seenIterations[channelId]?[senderId]?.insert(iteration)
+
+        // Limit memory usage by pruning old iterations when over limit
+        if let count = seenIterations[channelId]?[senderId]?.count, count > maxSeenIterationsPerSender {
+            // Keep only the highest iterations (most recent)
+            if var iterations = seenIterations[channelId]?[senderId] {
+                let sorted = iterations.sorted()
+                let toKeep = sorted.suffix(maxSeenIterationsPerSender / 2)
+                iterations = Set(toKeep)
+                seenIterations[channelId]?[senderId] = iterations
+            }
+        }
     }
 
     // MARK: - Key Derivation
@@ -311,41 +416,79 @@ struct GroupCiphertext: Codable {
     }
 }
 
-struct UploadSenderKeyRequest: Encodable {
-    let channelId: String
+/// Internal structure for sender key distribution message
+/// This is encrypted before being sent to each recipient
+struct SenderKeyDistributionData: Codable {
     let distributionId: String
-    let senderKey: String
-
-    enum CodingKeys: String, CodingKey {
-        case channelId = "channel_id"
-        case distributionId = "distribution_id"
-        case senderKey = "sender_key"
-    }
-}
-
-struct SenderKeyResponse: Decodable {
-    let channelId: String
-    let userId: String
-    let distributionId: String
-    let senderKey: String
+    let chainKey: String  // Base64-encoded chain key
     let iteration: Int
-    let createdAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case channelId = "channel_id"
-        case userId = "user_id"
         case distributionId = "distribution_id"
-        case senderKey = "sender_key"
+        case chainKey = "chain_key"
         case iteration
-        case createdAt = "created_at"
     }
 }
 
-struct SenderKeysResponse: Decodable {
-    let senderKeys: [SenderKeyResponse]
+/// Request to upload encrypted sender keys for channel members
+struct UploadEncryptedSenderKeysRequest: Encodable {
+    let channelId: String
+    let distributionId: String
+    let encryptedKeys: [EncryptedSenderKeyRequest]
+
+    enum CodingKeys: String, CodingKey {
+        case channelId = "channel_id"
+        case distributionId = "distribution_id"
+        case encryptedKeys = "encrypted_keys"
+    }
+}
+
+/// Individual encrypted sender key for a recipient
+struct EncryptedSenderKeyRequest: Encodable {
+    let recipientId: String
+    let encryptedKey: String  // Base64-encoded Double Ratchet encrypted data
+
+    enum CodingKeys: String, CodingKey {
+        case recipientId = "recipient_id"
+        case encryptedKey = "encrypted_key"
+    }
+}
+
+/// Response containing encrypted sender keys from channel members
+struct EncryptedSenderKeysResponse: Decodable {
+    let senderKeys: [EncryptedSenderKeyResponse]
 
     enum CodingKeys: String, CodingKey {
         case senderKeys = "sender_keys"
+    }
+}
+
+/// Encrypted sender key from a channel member
+struct EncryptedSenderKeyResponse: Decodable {
+    let senderId: String
+    let encryptedKey: String  // Base64-encoded, encrypted for us
+    let distributionId: String
+
+    enum CodingKeys: String, CodingKey {
+        case senderId = "sender_id"
+        case encryptedKey = "encrypted_key"
+        case distributionId = "distribution_id"
+    }
+}
+
+/// Response containing channel members
+/// Uses ChannelMember from MessagingModels.swift
+struct ChannelMembersResponse: Decodable {
+    let members: [ChannelMemberBasic]
+}
+
+/// Basic channel member info for sender key distribution
+/// (Separate from full ChannelMember to avoid import issues)
+struct ChannelMemberBasic: Decodable {
+    let userId: String
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
     }
 }
 
@@ -371,6 +514,7 @@ enum SenderKeyError: Error, LocalizedError {
     case senderKeyNotFound
     case invalidDistributionId
     case keyRotationRequired
+    case replayAttackDetected
 
     var errorDescription: String? {
         switch self {
@@ -384,6 +528,8 @@ enum SenderKeyError: Error, LocalizedError {
             return "Invalid sender key distribution ID"
         case .keyRotationRequired:
             return "Key rotation required"
+        case .replayAttackDetected:
+            return "Replay attack detected - message iteration already processed"
         }
     }
 }
