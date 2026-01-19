@@ -572,6 +572,8 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Kuurier uses your location to show nearby activity and let you share location with posts.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Kuurier needs camera access to capture photos and videos for your posts.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Kuurier needs photo library access to attach images and videos to your posts.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -606,6 +608,8 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Kuurier uses your location to show nearby activity and let you share location with posts.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Kuurier needs camera access to capture photos and videos for your posts.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Kuurier needs photo library access to attach images and videos to your posts.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
