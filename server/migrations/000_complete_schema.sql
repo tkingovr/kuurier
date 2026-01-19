@@ -664,5 +664,30 @@ COMMENT ON TABLE messages IS 'E2EE messages - server stores only ciphertext';
 COMMENT ON TABLE alerts IS 'SOS emergency alerts with geospatial broadcast';
 
 -- ============================================================================
+-- BOOTSTRAP DATA
+-- ============================================================================
+
+-- Bootstrap user (user zero) - required to generate initial invite codes
+-- This user cannot log in (invalid public key) but can invite the first real users
+INSERT INTO users (id, public_key, trust_score, is_verified, created_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000000',
+    decode('0000000000000000000000000000000000000000000000000000000000000000', 'hex'),
+    100,
+    true,
+    NOW()
+) ON CONFLICT (id) DO NOTHING;
+
+-- Initial invite code (valid for 1 year)
+INSERT INTO invite_codes (id, code, inviter_id, created_at, expires_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'KUU-BOOT01',
+    '00000000-0000-0000-0000-000000000000',
+    NOW(),
+    NOW() + INTERVAL '365 days'
+) ON CONFLICT (code) DO NOTHING;
+
+-- ============================================================================
 -- END OF SCHEMA
 -- ============================================================================
