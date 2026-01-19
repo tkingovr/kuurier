@@ -565,15 +565,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U7QJ5RPT9D;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Kuurier uses your location to show nearby activity and let you share location with posts.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Kuurier needs camera access to capture photos and videos for your posts.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Kuurier needs photo library access to attach images and videos to your posts.";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Kuurier/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -601,15 +594,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U7QJ5RPT9D;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Kuurier uses your location to show nearby activity and let you share location with posts.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Kuurier needs camera access to capture photos and videos for your posts.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Kuurier needs photo library access to attach images and videos to your posts.";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Kuurier/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
