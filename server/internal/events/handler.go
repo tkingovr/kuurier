@@ -76,14 +76,15 @@ func (h *Handler) ListEvents(c *gin.Context) {
 		limit = 100
 	}
 
-	// Base query - includes location privacy fields
+	// Base query - includes location privacy fields and channel info
 	query := `
 		SELECT e.id, e.organizer_id, e.title, e.description, e.event_type,
 			   ST_Y(e.location::geometry) as lat, ST_X(e.location::geometry) as lon,
 			   e.location_name, e.location_area, e.location_visibility, e.location_reveal_at,
-			   e.starts_at, e.ends_at, e.is_cancelled,
+			   e.starts_at, e.ends_at, e.is_cancelled, e.channel_id,
 			   (SELECT COUNT(*) FROM event_rsvps WHERE event_id = e.id AND status = 'going') as rsvp_count,
-			   EXISTS(SELECT 1 FROM event_rsvps WHERE event_id = e.id AND user_id = $1) as has_rsvp
+			   EXISTS(SELECT 1 FROM event_rsvps WHERE event_id = e.id AND user_id = $1) as has_rsvp,
+			   EXISTS(SELECT 1 FROM channel_members WHERE channel_id = e.channel_id AND user_id = $1) as is_channel_member
 		FROM events e
 		WHERE e.starts_at > NOW() - INTERVAL '1 day'
 		  AND e.is_cancelled = false
@@ -122,18 +123,18 @@ func (h *Handler) ListEvents(c *gin.Context) {
 	var events []gin.H
 	for rows.Next() {
 		var id, organizerID, title, eventType string
-		var description, locationName, locationArea *string
+		var description, locationName, locationArea, channelID *string
 		var locationVisibility string
 		var locationRevealAt *time.Time
 		var lat, lon float64
 		var startsAt time.Time
 		var endsAt *time.Time
-		var isCancelled, hasRSVP bool
+		var isCancelled, hasRSVP, isChannelMember bool
 		var rsvpCount int
 
 		if err := rows.Scan(&id, &organizerID, &title, &description, &eventType, &lat, &lon,
 			&locationName, &locationArea, &locationVisibility, &locationRevealAt,
-			&startsAt, &endsAt, &isCancelled, &rsvpCount, &hasRSVP); err != nil {
+			&startsAt, &endsAt, &isCancelled, &channelID, &rsvpCount, &hasRSVP, &isChannelMember); err != nil {
 			continue
 		}
 
@@ -145,6 +146,12 @@ func (h *Handler) ListEvents(c *gin.Context) {
 			"starts_at":           startsAt,
 			"rsvp_count":          rsvpCount,
 			"location_visibility": locationVisibility,
+		}
+
+		// Include channel info if available
+		if channelID != nil {
+			event["channel_id"] = *channelID
+			event["is_channel_member"] = isChannelMember
 		}
 
 		// Conditionally include exact location

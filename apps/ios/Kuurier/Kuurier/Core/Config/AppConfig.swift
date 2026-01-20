@@ -24,9 +24,8 @@ enum AppConfig {
     /// Set to true to use production server in DEBUG builds (for testing)
     static let useProductionServer = true
 
-    /// Production API URL
-    /// TODO: Change to https:// once SSL is configured on server
-    private static let productionAPIURL = "http://api.kuurier.com/api/v1"
+    /// Production API URL (SSL enabled)
+    private static let productionAPIURL = "https://api.kuurier.com/api/v1"
 
     // MARK: - App Information
 
