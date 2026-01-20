@@ -43,12 +43,13 @@ jobs:
             git fetch origin
             git reset --hard origin/${{ github.ref_name }}
 
-            # Rebuild and restart
-            docker compose -f docker-compose.prod.yml down
-            docker build -t kuurier-server:latest .
-            docker compose -f docker-compose.prod.yml up -d
+            # Rebuild image without cache to ensure latest code is used
+            docker build --no-cache -t kuurier-server:latest .
 
-            # Wait for services to start
+            # Recreate API containers with new image (keep DB and Redis running)
+            docker compose -f docker-compose.prod.yml up -d --force-recreate api-blue api-green
+
+            # Wait for services to be healthy
             sleep 15
 
             # Verify health
