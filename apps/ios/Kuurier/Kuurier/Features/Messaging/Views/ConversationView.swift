@@ -5,6 +5,7 @@ import Combine
 struct ConversationView: View {
     let channel: Channel?
     let channelId: String
+    let event: Event?
 
     @StateObject private var viewModel: ConversationViewModel
     @StateObject private var wsService = WebSocketService.shared
@@ -16,6 +17,7 @@ struct ConversationView: View {
     init(channel: Channel) {
         self.channel = channel
         self.channelId = channel.id
+        self.event = nil
         _viewModel = StateObject(wrappedValue: ConversationViewModel(channel: channel))
     }
 
@@ -23,11 +25,25 @@ struct ConversationView: View {
     init(channelId: String) {
         self.channel = nil
         self.channelId = channelId
+        self.event = nil
+        _viewModel = StateObject(wrappedValue: ConversationViewModel(channelId: channelId))
+    }
+
+    /// Initialize with channel ID and associated event (for event chats)
+    init(channelId: String, event: Event) {
+        self.channel = nil
+        self.channelId = channelId
+        self.event = event
         _viewModel = StateObject(wrappedValue: ConversationViewModel(channelId: channelId))
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            // Event banner for event chats
+            if let event = event {
+                EventChatBanner(event: event)
+            }
+
             // Messages list
             ScrollViewReader { proxy in
                 ScrollView {
@@ -483,6 +499,54 @@ enum MessagingError: Error {
 }
 
 // SendMessageRequest is defined in MessagingModels.swift
+
+/// Banner shown at top of event chat to link back to event details
+struct EventChatBanner: View {
+    let event: Event
+    @State private var showEventDetail = false
+
+    var body: some View {
+        Button {
+            showEventDetail = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: event.eventType.icon)
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .frame(width: 36, height: 36)
+                    .background(Color.orange)
+                    .cornerRadius(8)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(event.title)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+
+                    Text(event.startsAt, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color(UIColor.secondarySystemBackground))
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showEventDetail) {
+            NavigationStack {
+                EventDetailView(event: event)
+            }
+        }
+    }
+}
 
 #Preview {
     NavigationStack {

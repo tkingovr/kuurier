@@ -2165,7 +2165,7 @@ struct EventDetailView: View {
 
                             if currentEvent.isChannelMember == true || isOrganizer {
                                 NavigationLink {
-                                    ConversationView(channelId: channelId)
+                                    ConversationView(channelId: channelId, event: currentEvent)
                                 } label: {
                                     HStack {
                                         Image(systemName: "bubble.left.and.bubble.right.fill")
