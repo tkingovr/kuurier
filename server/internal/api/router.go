@@ -15,6 +15,7 @@ import (
 	"github.com/kuurier/server/internal/media"
 	"github.com/kuurier/server/internal/messaging"
 	"github.com/kuurier/server/internal/middleware"
+	"github.com/kuurier/server/internal/news"
 	"github.com/kuurier/server/internal/push"
 	"github.com/kuurier/server/internal/storage"
 	"github.com/kuurier/server/internal/websocket"
@@ -61,6 +62,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	groupHandler := messaging.NewGroupHandler(cfg, db)
 	governanceHandler := messaging.NewGovernanceHandler(cfg, db)
 	feedHandler := feed.NewHandler(cfg, db, redis)
+	newsHandler := news.NewHandler()
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
 	alertsHandler := alerts.NewHandler(cfg, db, redis, pushService)
@@ -194,6 +196,9 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				feedRoutes.POST("/posts/:id/verify", feedHandler.VerifyPost)
 				feedRoutes.POST("/posts/:id/flag", feedHandler.FlagPost)
 			}
+
+			// News routes (aggregated news from external sources)
+			protected.GET("/news", newsHandler.GetNews)
 
 			// Media routes (only if MinIO is configured)
 			if mediaHandler != nil {

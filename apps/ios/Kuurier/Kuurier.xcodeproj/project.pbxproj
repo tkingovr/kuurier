@@ -18,6 +18,7 @@
 		52E7DB052F1151EC00CCA28A /* InviteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB022F1151EC00CCA28A /* InviteService.swift */; };
 		52E7DB062F1151EC00CCA28A /* InvitesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB032F1151EC00CCA28A /* InvitesView.swift */; };
 		52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB082F1152EC00CCA28A /* FeedService.swift */; };
+		52E7DB712F11500000CCA28A /* NewsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB722F11500000CCA28A /* NewsService.swift */; };
 		52E7DB092F115A0000CCA28A /* MapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0A2F115A0000CCA28A /* MapService.swift */; };
 		52E7DB0C2F115B0000CCA28A /* EventsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0B2F115B0000CCA28A /* EventsService.swift */; };
 		52E7DB0D2F116A0000CCA28A /* MediaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7DB0E2F116A0000CCA28A /* MediaService.swift */; };
@@ -55,6 +56,7 @@
 		52E7DB022F1151EC00CCA28A /* InviteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteService.swift; sourceTree = "<group>"; };
 		52E7DB032F1151EC00CCA28A /* InvitesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitesView.swift; sourceTree = "<group>"; };
 		52E7DB082F1152EC00CCA28A /* FeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedService.swift; sourceTree = "<group>"; };
+		52E7DB722F11500000CCA28A /* NewsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewsService.swift; sourceTree = "<group>"; };
 		52E7DB0A2F115A0000CCA28A /* MapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapService.swift; sourceTree = "<group>"; };
 		52E7DB0B2F115B0000CCA28A /* EventsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventsService.swift; sourceTree = "<group>"; };
 		52E7DB0E2F116A0000CCA28A /* MediaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaService.swift; sourceTree = "<group>"; };
@@ -202,6 +204,7 @@
 			children = (
 				52E7DB082F1152EC00CCA28A /* FeedService.swift */,
 				52E7DB0E2F116A0000CCA28A /* MediaService.swift */,
+				52E7DB722F11500000CCA28A /* NewsService.swift */,
 			);
 			path = Feed;
 			sourceTree = "<group>";
@@ -406,6 +409,7 @@
 				52E7DB052F1151EC00CCA28A /* InviteService.swift in Sources */,
 				52E7DB062F1151EC00CCA28A /* InvitesView.swift in Sources */,
 				52E7DB072F1152EC00CCA28A /* FeedService.swift in Sources */,
+				52E7DB712F11500000CCA28A /* NewsService.swift in Sources */,
 				52E7DB092F115A0000CCA28A /* MapService.swift in Sources */,
 				52E7DB0C2F115B0000CCA28A /* EventsService.swift in Sources */,
 				52E7DB0D2F116A0000CCA28A /* MediaService.swift in Sources */,

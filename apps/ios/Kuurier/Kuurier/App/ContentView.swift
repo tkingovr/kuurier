@@ -374,8 +374,10 @@ struct FeedComposeButton: View {
 struct FeedView: View {
     @EnvironmentObject var authService: AuthService
     @StateObject private var feedService = FeedService.shared
+    @StateObject private var newsService = NewsService.shared
     @State private var showComposeSheet = false
     @State private var showLockedAlert = false
+    @State private var selectedFilter = 0 // 0 = All, 1 = Posts, 2 = News
 
     private var canPost: Bool {
         guard let user = authService.currentUser else { return false }
@@ -389,11 +391,23 @@ struct FeedView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if feedService.posts.isEmpty && !feedService.isLoading {
-                    emptyStateView
-                } else {
-                    postListView
+            VStack(spacing: 0) {
+                // Filter picker
+                Picker("Filter", selection: $selectedFilter) {
+                    Text("All").tag(0)
+                    Text("Posts").tag(1)
+                    Text("News").tag(2)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                Group {
+                    if isEmpty {
+                        emptyStateView
+                    } else {
+                        feedListView
+                    }
                 }
             }
             .navigationTitle("Feed")
@@ -420,8 +434,18 @@ struct FeedView: View {
                 Text("You need a trust score of 25 to create posts. Get \(trustNeeded) more point\(trustNeeded == 1 ? "" : "s") by receiving vouches from trusted members.")
             }
             .task {
-                await feedService.fetchFeed()
+                async let fetchPosts: () = feedService.fetchFeed()
+                async let fetchNews: () = newsService.fetchNews()
+                _ = await (fetchPosts, fetchNews)
             }
+        }
+    }
+
+    private var isEmpty: Bool {
+        switch selectedFilter {
+        case 1: return feedService.posts.isEmpty && !feedService.isLoading
+        case 2: return newsService.articles.isEmpty && !newsService.isLoading
+        default: return feedService.posts.isEmpty && newsService.articles.isEmpty && !feedService.isLoading && !newsService.isLoading
         }
     }
 
@@ -447,31 +471,194 @@ struct FeedView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var postListView: some View {
+    private var feedListView: some View {
         List {
-            ForEach(feedService.posts) { post in
-                PostRowView(post: post)
-            }
-
-            // Load more indicator
-            if feedService.hasMorePosts {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .onAppear {
-                            Task {
-                                await feedService.loadMorePosts()
-                            }
-                        }
-                    Spacer()
+            // Show content based on selected filter
+            switch selectedFilter {
+            case 1: // Posts only
+                ForEach(feedService.posts) { post in
+                    PostRowView(post: post)
                 }
-                .listRowSeparator(.hidden)
+                if feedService.hasMorePosts {
+                    loadMoreIndicator
+                }
+
+            case 2: // News only
+                ForEach(newsService.articles) { article in
+                    NewsCardView(article: article)
+                }
+
+            default: // All - interleaved feed
+                ForEach(combinedFeedItems, id: \.id) { item in
+                    switch item {
+                    case .post(let post):
+                        PostRowView(post: post)
+                    case .news(let article):
+                        NewsCardView(article: article)
+                    }
+                }
+                if feedService.hasMorePosts {
+                    loadMoreIndicator
+                }
             }
         }
         .listStyle(.plain)
         .refreshable {
-            await feedService.fetchFeed(refresh: true)
+            async let refreshPosts: () = feedService.fetchFeed(refresh: true)
+            async let refreshNews: () = newsService.fetchNews(forceRefresh: true)
+            _ = await (refreshPosts, refreshNews)
         }
+    }
+
+    private var loadMoreIndicator: some View {
+        HStack {
+            Spacer()
+            ProgressView()
+                .onAppear {
+                    Task {
+                        await feedService.loadMorePosts()
+                    }
+                }
+            Spacer()
+        }
+        .listRowSeparator(.hidden)
+    }
+
+    // Combined feed items for interleaved display
+    private var combinedFeedItems: [FeedItem] {
+        var items: [FeedItem] = []
+
+        // Add posts
+        items.append(contentsOf: feedService.posts.map { FeedItem.post($0) })
+
+        // Add news
+        items.append(contentsOf: newsService.articles.map { FeedItem.news($0) })
+
+        // Sort by date (newest first)
+        items.sort { item1, item2 in
+            item1.date > item2.date
+        }
+
+        return items
+    }
+}
+
+// MARK: - Feed Item Enum (for combined feed)
+
+enum FeedItem {
+    case post(Post)
+    case news(NewsArticle)
+
+    var id: String {
+        switch self {
+        case .post(let post): return "post-\(post.id)"
+        case .news(let article): return "news-\(article.id)"
+        }
+    }
+
+    var date: Date {
+        switch self {
+        case .post(let post): return post.createdAt
+        case .news(let article): return article.publishedAt
+        }
+    }
+}
+
+// MARK: - News Card View
+
+struct NewsCardView: View {
+    let article: NewsArticle
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header with source
+            HStack {
+                // Source badge
+                HStack(spacing: 4) {
+                    Image(systemName: iconForSource)
+                        .font(.caption)
+                    Text(article.source)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.blue.opacity(0.1))
+                .foregroundColor(.blue)
+                .cornerRadius(6)
+
+                // Category
+                Text(article.category.capitalized)
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(4)
+
+                Spacer()
+
+                Text(article.publishedAt, style: .relative)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // Title
+            Text(article.title)
+                .font(.headline)
+                .lineLimit(3)
+
+            // Description
+            if !article.description.isEmpty {
+                Text(article.description)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+            }
+
+            // Location if available
+            if let location = article.location {
+                HStack(spacing: 4) {
+                    Image(systemName: "location.fill")
+                        .font(.caption)
+                    Text(location.name ?? "Location")
+                        .font(.caption)
+                }
+                .foregroundColor(.secondary)
+            }
+
+            // Read more button
+            Button(action: openArticle) {
+                HStack {
+                    Text("Read Full Article")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    Image(systemName: "arrow.up.right")
+                        .font(.caption)
+                }
+                .foregroundColor(.blue)
+            }
+        }
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: openArticle)
+    }
+
+    private var iconForSource: String {
+        switch article.sourceIcon {
+        case "newspaper": return "newspaper"
+        case "globe": return "globe"
+        case "book": return "book"
+        case "radio": return "radio"
+        case "megaphone": return "megaphone"
+        case "bolt": return "bolt"
+        default: return "doc.text"
+        }
+    }
+
+    private func openArticle() {
+        guard let url = URL(string: article.link) else { return }
+        openURL(url)
     }
 }
 
@@ -1125,6 +1312,7 @@ struct ComposePostView: View {
 struct MapView: View {
     @StateObject private var mapService = MapService.shared
     @StateObject private var eventsService = EventsService.shared
+    @StateObject private var newsService = NewsService.shared
     @StateObject private var locationManager = LocationManager()
     // Start zoomed out to show global view - centered on Middle East/Africa where most activity is
     @State private var cameraPosition: MapCameraPosition = .region(MKCoordinateRegion(
@@ -1135,6 +1323,8 @@ struct MapView: View {
     @State private var showMarkerDetail = false
     @State private var selectedEvent: Event?
     @State private var showEventDetail = false
+    @State private var selectedNewsArticle: NewsArticle?
+    @State private var showNewsDetail = false
     @State private var publicEvents: [Event] = []
     @State private var heatmapCells: [HeatmapCell] = []
     @State private var currentZoom: Int = 5
@@ -1194,6 +1384,22 @@ struct MapView: View {
                                     .onTapGesture {
                                         selectedEvent = event
                                         showEventDetail = true
+                                    }
+                            }
+                        }
+                    }
+
+                    // News article markers (for articles with location data)
+                    ForEach(newsService.articlesWithLocation) { article in
+                        if let location = article.location {
+                            Annotation("", coordinate: CLLocationCoordinate2D(
+                                latitude: location.latitude,
+                                longitude: location.longitude
+                            )) {
+                                NewsMarkerView(category: article.category)
+                                    .onTapGesture {
+                                        selectedNewsArticle = article
+                                        showNewsDetail = true
                                     }
                             }
                         }
@@ -1285,12 +1491,22 @@ struct MapView: View {
                     .presentationDetents([.large])
                 }
             }
+            .sheet(isPresented: $showNewsDetail) {
+                if let article = selectedNewsArticle {
+                    NewsDetailSheet(article: article)
+                        .presentationDetents([.medium, .large])
+                }
+            }
             .onAppear {
                 locationManager.requestPermission()
                 // Start pulse animation for high-urgency zones
                 withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                     pulseAnimation = true
                 }
+            }
+            .task {
+                // Fetch news articles on map load
+                await newsService.fetchNews()
             }
         }
     }
@@ -1522,6 +1738,208 @@ struct Triangle: Shape {
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
         path.closeSubpath()
         return path
+    }
+}
+
+// MARK: - News Marker View
+
+struct NewsMarkerView: View {
+    let category: String
+
+    private var markerColor: Color {
+        switch category {
+        case "politics": return .indigo
+        case "world": return .cyan
+        case "breaking": return .red
+        case "activism": return .green
+        case "news": return .blue
+        default: return .gray
+        }
+    }
+
+    private var markerIcon: String {
+        switch category {
+        case "politics": return "building.columns"
+        case "world": return "globe"
+        case "breaking": return "bolt"
+        case "activism": return "megaphone"
+        case "news": return "newspaper"
+        default: return "doc.text"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                // News marker with diamond shape
+                Diamond()
+                    .fill(markerColor)
+                    .frame(width: 32, height: 32)
+
+                Diamond()
+                    .strokeBorder(.white, lineWidth: 2)
+                    .frame(width: 32, height: 32)
+
+                Image(systemName: markerIcon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+
+            // Pin point
+            Triangle()
+                .fill(markerColor)
+                .frame(width: 10, height: 6)
+                .offset(y: -2)
+        }
+    }
+}
+
+// MARK: - Diamond Shape
+
+struct Diamond: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+extension Diamond: InsettableShape {
+    func inset(by amount: CGFloat) -> some InsettableShape {
+        return self
+    }
+}
+
+// MARK: - News Detail Sheet
+
+struct NewsDetailSheet: View {
+    let article: NewsArticle
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Source and category
+                    HStack {
+                        // Source badge
+                        HStack(spacing: 4) {
+                            Image(systemName: iconForSource)
+                                .font(.caption)
+                            Text(article.source)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundColor(.blue)
+                        .cornerRadius(6)
+
+                        // Category
+                        Text(article.category.capitalized)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(categoryColor.opacity(0.1))
+                            .foregroundColor(categoryColor)
+                            .cornerRadius(4)
+
+                        Spacer()
+
+                        Text(article.publishedAt, style: .relative)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    // Title
+                    Text(article.title)
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    // Description
+                    if !article.description.isEmpty {
+                        Text(article.description)
+                            .font(.body)
+                            .foregroundColor(.secondary)
+                    }
+
+                    // Location if available
+                    if let location = article.location {
+                        HStack(spacing: 8) {
+                            Image(systemName: "location.fill")
+                                .foregroundColor(.secondary)
+                            Text(location.name ?? "Location")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 8)
+                    }
+
+                    Divider()
+
+                    // Read full article button
+                    Button(action: openArticle) {
+                        HStack {
+                            Image(systemName: "safari")
+                            Text("Read Full Article")
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                        }
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(Color.blue)
+                        .cornerRadius(12)
+                    }
+
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationTitle("News")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var iconForSource: String {
+        switch article.sourceIcon {
+        case "newspaper": return "newspaper"
+        case "globe": return "globe"
+        case "book": return "book"
+        case "radio": return "radio"
+        case "megaphone": return "megaphone"
+        case "bolt": return "bolt"
+        default: return "doc.text"
+        }
+    }
+
+    private var categoryColor: Color {
+        switch article.category {
+        case "politics": return .indigo
+        case "world": return .cyan
+        case "breaking": return .red
+        case "activism": return .green
+        case "news": return .blue
+        default: return .gray
+        }
+    }
+
+    private func openArticle() {
+        guard let url = URL(string: article.link) else { return }
+        openURL(url)
     }
 }
 

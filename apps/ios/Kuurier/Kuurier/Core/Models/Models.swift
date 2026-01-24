@@ -156,9 +156,17 @@ enum SourceType: String, Codable {
 struct Location: Codable {
     let latitude: Double
     let longitude: Double
+    let name: String?
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    // Allow init without name for backwards compatibility
+    init(latitude: Double, longitude: Double, name: String? = nil) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.name = name
     }
 }
 
@@ -310,6 +318,39 @@ enum RSVPStatus: String, Codable {
         case .notGoing: return "Can't Go"
         }
     }
+}
+
+// MARK: - News
+
+struct NewsArticle: Codable, Identifiable {
+    let id: String
+    let title: String
+    let description: String
+    let link: String
+    let source: String
+    let sourceIcon: String
+    let publishedAt: Date
+    let imageURL: String?
+    let category: String
+    let location: Location?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case description
+        case link
+        case source
+        case sourceIcon = "source_icon"
+        case publishedAt = "published_at"
+        case imageURL = "image_url"
+        case category
+        case location
+    }
+}
+
+struct NewsResponse: Decodable {
+    let articles: [NewsArticle]
+    let cached: Bool
 }
 
 // MARK: - Alerts (SOS)
