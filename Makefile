@@ -1,4 +1,4 @@
-.PHONY: help dev dev-down db-migrate db-reset server ios test lint clean
+.PHONY: help dev dev-down db-migrate db-reset server ios android test lint clean
 
 # Default target
 help:
@@ -13,6 +13,7 @@ help:
 	@echo "Development:"
 	@echo "  make server       - Run the Go server locally"
 	@echo "  make ios          - Open iOS project in Xcode"
+	@echo "  make android      - Open Android project in Android Studio"
 	@echo "  make test         - Run all tests"
 	@echo "  make lint         - Run linters"
 	@echo ""
@@ -60,6 +61,11 @@ ios:
 	@echo "Opening iOS project in Xcode..."
 	open apps/ios/Kuurier.xcodeproj 2>/dev/null || echo "No Xcode project found. Create one in Xcode first."
 
+# Open Android project
+android:
+	@echo "Opening Android project in Android Studio..."
+	open -a "Android Studio" apps/android 2>/dev/null || studio apps/android 2>/dev/null || echo "Open apps/android in Android Studio"
+
 # Run tests
 test:
 	@echo "Running server tests..."
@@ -85,3 +91,4 @@ clean:
 	cd server && go clean
 	rm -rf server/bin
 	rm -rf apps/ios/build
+	rm -rf apps/android/app/build apps/android/build apps/android/.gradle

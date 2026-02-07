@@ -43,7 +43,8 @@ Kuurier is built for people whose safety depends on their privacy.
 ```
 kuurier/
 ├── apps/
-│   └── ios/                 # iOS app (Swift/SwiftUI)
+│   ├── ios/                 # iOS app (Swift/SwiftUI)
+│   └── android/             # Android app (Kotlin/Jetpack Compose)
 ├── server/                  # Backend API (Go)
 │   ├── cmd/                 # Entry points
 │   ├── internal/            # Core logic
@@ -57,6 +58,7 @@ kuurier/
 | Layer | Technology |
 |-------|------------|
 | iOS | Swift, SwiftUI, CryptoKit |
+| Android | Kotlin, Jetpack Compose, Hilt |
 | Backend | Go, Gin framework |
 | Database | PostgreSQL + PostGIS |
 | Cache | Redis |
@@ -71,6 +73,7 @@ kuurier/
 - Docker & Docker Compose
 - Go 1.22+
 - Xcode 15+ (for iOS)
+- Android Studio Ladybug+ (for Android)
 
 ### 1. Clone the repo
 
@@ -104,6 +107,10 @@ Server runs at `http://localhost:8080`
 ### 5. Open the iOS app
 
 Open `apps/ios/Kuurier/Kuurier.xcodeproj` in Xcode, select a simulator, and run.
+
+### 6. Open the Android app
+
+Open `apps/android` in Android Studio, sync Gradle, and run on an emulator or device.
 
 ---
 
@@ -216,7 +223,7 @@ Please allow reasonable time for fixes before public disclosure.
 - [x] SOS alert system
 - [x] iOS app foundation
 - [ ] Push notifications
-- [ ] Android app
+- [x] Android app foundation
 - [ ] E2E encrypted direct messages
 - [ ] Offline mode with sync
 - [ ] Decentralized federation

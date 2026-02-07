@@ -159,7 +159,7 @@ func (h *Handler) GetQuietHours(c *gin.Context) {
 	var allowEmergency, isActive bool
 
 	err := h.db.Pool().QueryRow(ctx,
-		`SELECT start_time, end_time, timezone, allow_emergency, is_active
+		`SELECT to_char(start_time, 'HH24:MI'), to_char(end_time, 'HH24:MI'), timezone, allow_emergency, is_active
 		 FROM quiet_hours WHERE user_id = $1`,
 		userID,
 	).Scan(&startTime, &endTime, &timezone, &allowEmergency, &isActive)
