@@ -7,6 +7,7 @@ import (
 	"github.com/kuurier/server/internal/alerts"
 	"github.com/kuurier/server/internal/auth"
 	"github.com/kuurier/server/internal/config"
+	"github.com/kuurier/server/internal/devices"
 	"github.com/kuurier/server/internal/events"
 	"github.com/kuurier/server/internal/feed"
 	"github.com/kuurier/server/internal/geo"
@@ -67,6 +68,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
 	alertsHandler := alerts.NewHandler(cfg, db, redis, pushService)
+	devicesHandler := devices.NewHandler(cfg, db)
 
 	// Media handler (optional - requires MinIO)
 	var mediaHandler *media.Handler
@@ -254,6 +256,16 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				alertRoutes.PUT("/:id/status", alertsHandler.UpdateAlertStatus)
 				alertRoutes.POST("/:id/respond", alertsHandler.RespondToAlert)
 				alertRoutes.GET("/nearby", alertsHandler.GetNearbyAlerts)
+			}
+
+			// Device management routes (multi-device support)
+			deviceRoutes := protected.Group("/devices")
+			{
+				deviceRoutes.POST("/link", devicesHandler.SubmitLink)           // Mobile submits encrypted payload
+				deviceRoutes.GET("/link/:device_id", devicesHandler.PollLink)   // Desktop polls for payload
+				deviceRoutes.POST("/register", devicesHandler.RegisterDevice)   // Register new device
+				deviceRoutes.GET("", devicesHandler.ListDevices)                // List user's devices
+				deviceRoutes.DELETE("/:id", devicesHandler.RemoveDevice)        // Remove device
 			}
 
 			// Push notification routes

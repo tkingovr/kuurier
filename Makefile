@@ -1,4 +1,4 @@
-.PHONY: help dev dev-down db-migrate db-reset server ios test lint clean
+.PHONY: help dev dev-down db-migrate db-reset server ios desktop desktop-build web test lint clean
 
 # Default target
 help:
@@ -13,6 +13,9 @@ help:
 	@echo "Development:"
 	@echo "  make server       - Run the Go server locally"
 	@echo "  make ios          - Open iOS project in Xcode"
+	@echo "  make desktop      - Run desktop app in development mode"
+	@echo "  make desktop-build - Build desktop app for production"
+	@echo "  make web          - Run web app in development mode"
 	@echo "  make test         - Run all tests"
 	@echo "  make lint         - Run linters"
 	@echo ""
@@ -60,6 +63,21 @@ ios:
 	@echo "Opening iOS project in Xcode..."
 	open apps/ios/Kuurier.xcodeproj 2>/dev/null || echo "No Xcode project found. Create one in Xcode first."
 
+# Run desktop app in development mode
+desktop:
+	@echo "Starting Kuurier desktop app..."
+	cd apps/desktop && npm install && cargo tauri dev
+
+# Build desktop app for production
+desktop-build:
+	@echo "Building Kuurier desktop app..."
+	cd apps/desktop && npm install && cargo tauri build
+
+# Run web app in development mode
+web:
+	@echo "Starting Kuurier web app..."
+	cd apps/web && npm install && npm run dev
+
 # Run tests
 test:
 	@echo "Running server tests..."
@@ -85,3 +103,5 @@ clean:
 	cd server && go clean
 	rm -rf server/bin
 	rm -rf apps/ios/build
+	rm -rf apps/desktop/build
+	rm -rf apps/desktop/src-tauri/target

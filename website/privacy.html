@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy — Kuurier</title>
+    <meta name="description" content="Kuurier privacy policy. We collect no personal data.">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%234ade80'/><text x='50' y='68' font-size='60' font-weight='bold' text-anchor='middle' fill='%230a0a0a'>K</text></svg>">
+    <style>
+        :root {
+            --bg: #0a0a0a; --surface: #141414; --border: #2a2a2a;
+            --text: #e8e8e8; --text-dim: #888; --accent: #4ade80;
+            --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.7; }
+        a { color: var(--accent); }
+        .container { max-width: 700px; margin: 0 auto; padding: 0 24px; }
+
+        nav {
+            background: rgba(10,10,10,0.9); backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border); padding: 0 24px;
+        }
+        nav .inner { max-width: 700px; margin: 0 auto; display: flex; align-items: center; height: 60px; }
+        nav a { color: var(--text); text-decoration: none; font-weight: 700; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+        .logo-icon { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; }
+
+        .content { padding: 60px 0 80px; }
+        h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+        .updated { color: var(--text-dim); font-size: 14px; margin-bottom: 40px; }
+        h2 { font-size: 22px; font-weight: 600; margin-top: 36px; margin-bottom: 12px; }
+        p, li { font-size: 15px; color: var(--text-dim); margin-bottom: 12px; }
+        ul { padding-left: 24px; }
+        li { margin-bottom: 8px; }
+        strong { color: var(--text); }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="inner">
+        <a href="/"><div class="logo-icon">K</div> Kuurier</a>
+    </div>
+</nav>
+
+<div class="content">
+    <div class="container">
+        <h1>Privacy Policy</h1>
+        <p class="updated">Last updated: February 27, 2026</p>
+
+        <p>
+            Kuurier is designed to protect your privacy. This policy explains what data we handle,
+            what we don't, and how the system is built to minimize data collection by design.
+        </p>
+
+        <h2>Our Core Principle</h2>
+        <p>
+            <strong>We cannot access your data because we never have it.</strong>
+            Kuurier is built so that the server stores only what is necessary for message routing
+            and never stores personally identifiable information.
+        </p>
+
+        <h2>What We Do NOT Collect</h2>
+        <ul>
+            <li><strong>No email addresses</strong> — authentication uses Ed25519 cryptographic signatures</li>
+            <li><strong>No phone numbers</strong> — your keypair is your identity</li>
+            <li><strong>No names or usernames</strong> — you are identified by your public key</li>
+            <li><strong>No passwords</strong> — challenge-response authentication only</li>
+            <li><strong>No IP addresses</strong> — the desktop app routes through Tor by default</li>
+            <li><strong>No message content</strong> — messages are end-to-end encrypted with the Signal Protocol; the server stores only ciphertext</li>
+            <li><strong>No analytics or tracking</strong> — no third-party SDKs, no telemetry, no usage tracking</li>
+            <li><strong>No advertising</strong> — Kuurier has no ads and no advertising partnerships</li>
+        </ul>
+
+        <h2>What the Server Stores</h2>
+        <p>The Kuurier server stores the minimum data required to operate:</p>
+        <ul>
+            <li><strong>Your Ed25519 public key</strong> (32 bytes) — used to verify your identity during authentication</li>
+            <li><strong>Signal Protocol key bundles</strong> — public keys used for establishing encrypted sessions with other users</li>
+            <li><strong>Encrypted message ciphertext</strong> — opaque blobs that the server cannot decrypt; stored temporarily until delivered</li>
+            <li><strong>Trust score</strong> — a numeric value based on vouches from other members</li>
+            <li><strong>Invite relationships</strong> — which invite code was used during registration (for web-of-trust accountability)</li>
+            <li><strong>Event and alert metadata</strong> — event titles, times, and locations you choose to share; alert descriptions and coordinates</li>
+        </ul>
+
+        <h2>Local Device Storage</h2>
+        <p>Your device stores:</p>
+        <ul>
+            <li><strong>Ed25519 private key</strong> — stored in the OS keychain (macOS Keychain, Windows Credential Manager, or Linux libsecret). Never transmitted.</li>
+            <li><strong>Signal Protocol session state</strong> — encryption keys for active conversations</li>
+            <li><strong>Decrypted messages</strong> — cached locally in an encrypted SQLite database. The encryption key is derived from your private key.</li>
+            <li><strong>Tor consensus data</strong> — cached network information for faster Tor connections</li>
+        </ul>
+        <p>All local data can be destroyed instantly using the <strong>Panic Wipe</strong> feature.</p>
+
+        <h2>Tor and Network Privacy</h2>
+        <p>
+            The desktop app includes an embedded Tor client. When enabled, all traffic between
+            your device and the Kuurier server is routed through the Tor network. This means:
+        </p>
+        <ul>
+            <li>The Kuurier server sees traffic from Tor exit nodes, not your real IP</li>
+            <li>Your ISP sees Tor traffic, but cannot determine you are using Kuurier</li>
+            <li>No network metadata (IP, geolocation) is stored on the server</li>
+        </ul>
+
+        <h2>Third Parties</h2>
+        <p>
+            Kuurier does not share data with any third parties. We do not use analytics services,
+            advertising networks, crash reporting tools, or any external SDKs that phone home.
+        </p>
+        <p>
+            The only external network connection the app makes is to the Kuurier API server
+            (through Tor, if enabled) and to the Tor network itself.
+        </p>
+
+        <h2>Data Retention</h2>
+        <ul>
+            <li>Encrypted messages are stored until delivered to all recipient devices, then marked for cleanup</li>
+            <li>Signal Protocol one-time pre-keys are consumed on use and deleted</li>
+            <li>Device link requests expire after 5 minutes</li>
+            <li>Auth challenges expire after 5 minutes</li>
+            <li>Invite codes expire after 7 days</li>
+        </ul>
+
+        <h2>Account Deletion</h2>
+        <p>
+            You can delete your account at any time via the API (<code>DELETE /me</code>).
+            This cascades to all associated data: devices, keys, vouches, posts, and channel memberships.
+        </p>
+
+        <h2>Law Enforcement</h2>
+        <p>
+            We cannot provide message content in response to legal requests because we do not have it.
+            Messages are end-to-end encrypted; the server only stores ciphertext that we cannot decrypt.
+            We cannot provide IP addresses because we do not log them.
+        </p>
+
+        <h2>Open Source</h2>
+        <p>
+            Kuurier is open source. You can audit the server code, client code, and encryption
+            implementation to verify these privacy claims.
+            <a href="https://github.com/kuurier">View source on GitHub.</a>
+        </p>
+
+        <h2>Changes</h2>
+        <p>
+            If we make changes to this policy, we will update the "Last updated" date at the top.
+            Since Kuurier has no email addresses or contact information for users, policy changes
+            will be announced via the project's GitHub repository.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+            For questions about this privacy policy, open an issue on
+            <a href="https://github.com/kuurier/kuurier/issues">GitHub</a>.
+        </p>
+    </div>
+</div>
+
+</body>
+</html>

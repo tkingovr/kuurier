@@ -37,6 +37,23 @@ timeline.xctimeline
 playground.xcworkspace
 .build/
 
+# Node.js
+node_modules/
+dist/
+
+# Rust / Tauri
+target/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/build/
+
+# Web app
+apps/web/build/
+apps/web/.svelte-kit/
+
+# Desktop app
+apps/desktop/.svelte-kit/
+
 # macOS
 .DS_Store
 .AppleDouble
