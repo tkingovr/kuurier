@@ -1,6 +1,22 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { authState, logout } from '$lib/stores/auth';
+	import { setDisplayName, getMe } from '$lib/api';
 	import { goto } from '$app/navigation';
+
+	let displayNameInput = $state('');
+	let displayNameSaved = $state(false);
+
+	onMount(async () => {
+		try {
+			const profile = await getMe();
+			if (profile.display_name) {
+				displayNameInput = profile.display_name;
+			}
+		} catch (e) {
+			console.error('Failed to load profile:', e);
+		}
+	});
 
 	function handleLogout() {
 		logout();
@@ -13,6 +29,17 @@
 		logout();
 		goto('/');
 	}
+
+	async function handleSaveDisplayName() {
+		if (!displayNameInput.trim()) return;
+		try {
+			await setDisplayName(displayNameInput.trim());
+			displayNameSaved = true;
+			setTimeout(() => (displayNameSaved = false), 2000);
+		} catch (e) {
+			console.error('Failed to save display name:', e);
+		}
+	}
 </script>
 
 <div class="settings-page">
@@ -20,6 +47,16 @@
 	<div class="settings-content">
 		<section>
 			<h3>Identity</h3>
+			<div class="row vertical">
+				<span class="label">Display Name</span>
+				<p class="dim">Visible to others in channels and DMs.</p>
+				<div class="input-row">
+					<input type="text" bind:value={displayNameInput} placeholder="Enter a display name" maxlength="30" />
+					<button class="btn-primary" onclick={handleSaveDisplayName}>
+						{displayNameSaved ? 'Saved' : 'Save'}
+					</button>
+				</div>
+			</div>
 			<div class="row">
 				<span class="label">User ID</span>
 				<code>{$authState.user_id ?? 'N/A'}</code>
@@ -64,10 +101,14 @@
 	section { padding: 20px 0; border-bottom: 1px solid var(--color-border); }
 	h3 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
 	.row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; }
+	.row.vertical { flex-direction: column; gap: 6px; }
 	.label { color: var(--color-text-secondary); }
 	code { font-family: var(--font-mono); background: var(--color-surface-hover); padding: 2px 6px; border-radius: 4px; }
 	.accent { color: var(--color-accent); font-weight: 600; }
 	.dim { font-size: 14px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 8px; }
+	.input-row { display: flex; gap: 8px; }
+	.input-row input { flex: 1; border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 12px; font-size: 14px; }
+	.btn-primary { background: var(--color-accent); color: var(--color-bg); border: none; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
 	.btn-secondary { background: none; border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; }
 	.btn-secondary:hover { background: var(--color-surface-hover); }
 	.danger h3 { color: var(--color-danger); }

@@ -1,0 +1,342 @@
+name: Desktop Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.1.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # Strip 'v' prefix from tag
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Print version
+        run: echo "Building version ${{ steps.version.outputs.version }}"
+
+  build-macos:
+    name: Build macOS (universal)
+    needs: prepare
+    runs-on: macos-14
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build ARM64
+        working-directory: apps/desktop/src-tauri
+        run: cargo tauri build --target aarch64-apple-darwin
+
+      - name: Build x86_64
+        working-directory: apps/desktop/src-tauri
+        run: cargo tauri build --target x86_64-apple-darwin
+
+      - name: Create universal binary
+        working-directory: apps/desktop/src-tauri
+        run: |
+          ARM_APP="target/aarch64-apple-darwin/release/bundle/macos/Kuurier.app"
+          X64_APP="target/x86_64-apple-darwin/release/bundle/macos/Kuurier.app"
+          UNIVERSAL_DIR="target/universal-apple-darwin/release/bundle/macos"
+
+          mkdir -p "$UNIVERSAL_DIR/Kuurier.app/Contents/MacOS"
+          mkdir -p "$UNIVERSAL_DIR/Kuurier.app/Contents/Resources"
+
+          # Create universal binary with lipo
+          lipo -create \
+            "$ARM_APP/Contents/MacOS/Kuurier" \
+            "$X64_APP/Contents/MacOS/Kuurier" \
+            -output "$UNIVERSAL_DIR/Kuurier.app/Contents/MacOS/Kuurier"
+
+          # Copy resources from ARM build
+          cp -R "$ARM_APP/Contents/Resources/" "$UNIVERSAL_DIR/Kuurier.app/Contents/Resources/" 2>/dev/null || true
+          cp "$ARM_APP/Contents/Info.plist" "$UNIVERSAL_DIR/Kuurier.app/Contents/Info.plist"
+
+      - name: Create DMGs
+        working-directory: apps/desktop/src-tauri
+        run: |
+          # Universal DMG
+          hdiutil create -volname "Kuurier" -srcfolder "target/universal-apple-darwin/release/bundle/macos/Kuurier.app" \
+            -ov -format UDZO "Kuurier_${VERSION}_macos_universal.dmg"
+
+          # ARM-only DMG
+          hdiutil create -volname "Kuurier" -srcfolder "target/aarch64-apple-darwin/release/bundle/macos/Kuurier.app" \
+            -ov -format UDZO "Kuurier_${VERSION}_macos_aarch64.dmg"
+
+          # x64-only DMG
+          hdiutil create -volname "Kuurier" -srcfolder "target/x86_64-apple-darwin/release/bundle/macos/Kuurier.app" \
+            -ov -format UDZO "Kuurier_${VERSION}_macos_x64.dmg"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-builds
+          path: |
+            apps/desktop/src-tauri/Kuurier_*_macos_*.dmg
+
+  build-windows:
+    name: Build Windows
+    needs: prepare
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build Windows
+        working-directory: apps/desktop/src-tauri
+        run: cargo tauri build
+
+      - name: Rename artifacts
+        shell: bash
+        working-directory: apps/desktop/src-tauri
+        run: |
+          # Find and rename NSIS installer
+          NSIS=$(find target/release/bundle/nsis -name '*.exe' | head -1)
+          if [ -n "$NSIS" ]; then
+            cp "$NSIS" "Kuurier_${VERSION}_windows_x64_setup.exe"
+          fi
+
+          # Find and rename MSI
+          MSI=$(find target/release/bundle/msi -name '*.msi' | head -1)
+          if [ -n "$MSI" ]; then
+            cp "$MSI" "Kuurier_${VERSION}_windows_x64.msi"
+          fi
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-builds
+          path: |
+            apps/desktop/src-tauri/Kuurier_*_windows_*
+
+  build-linux:
+    name: Build Linux
+    needs: prepare
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build Linux
+        working-directory: apps/desktop/src-tauri
+        run: cargo tauri build
+
+      - name: Rename artifacts
+        working-directory: apps/desktop/src-tauri
+        run: |
+          # Find and rename AppImage
+          APPIMAGE=$(find target/release/bundle/appimage -name '*.AppImage' | head -1)
+          if [ -n "$APPIMAGE" ]; then
+            cp "$APPIMAGE" "Kuurier_${VERSION}_linux_x64.AppImage"
+          fi
+
+          # Find and rename deb
+          DEB=$(find target/release/bundle/deb -name '*.deb' | head -1)
+          if [ -n "$DEB" ]; then
+            cp "$DEB" "Kuurier_${VERSION}_linux_x64.deb"
+          fi
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-builds
+          path: |
+            apps/desktop/src-tauri/Kuurier_*_linux_*
+
+  release:
+    name: Create Release & Deploy
+    needs: [prepare, build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Collect binaries
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' -o -name '*.AppImage' -o -name '*.deb' \) \
+            -exec cp {} release/ \;
+          ls -lh release/
+
+      - name: Generate checksums
+        working-directory: release
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Kuurier v${{ env.VERSION }}
+          body: |
+            ## Kuurier v${{ env.VERSION }}
+
+            ### Downloads
+
+            | Platform | File |
+            |----------|------|
+            | macOS (Universal) | `Kuurier_${{ env.VERSION }}_macos_universal.dmg` |
+            | macOS (ARM) | `Kuurier_${{ env.VERSION }}_macos_aarch64.dmg` |
+            | macOS (Intel) | `Kuurier_${{ env.VERSION }}_macos_x64.dmg` |
+            | Windows (NSIS) | `Kuurier_${{ env.VERSION }}_windows_x64_setup.exe` |
+            | Windows (MSI) | `Kuurier_${{ env.VERSION }}_windows_x64.msi` |
+            | Linux (AppImage) | `Kuurier_${{ env.VERSION }}_linux_x64.AppImage` |
+            | Linux (deb) | `Kuurier_${{ env.VERSION }}_linux_x64.deb` |
+
+            See `SHA256SUMS.txt` for verification checksums.
+          files: release/*
+          draft: false
+          prerelease: false
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 2222
+          script: |
+            mkdir -p ~/kuurier/downloads
+
+      - name: Upload binaries to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 2222
+          source: "release/*"
+          target: ~/kuurier/downloads
+          strip_components: 1
+
+      - name: Create latest symlinks
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 2222
+          script: |
+            cd ~/kuurier/downloads
+
+            # Create "latest" symlinks
+            ln -sf "Kuurier_${{ env.VERSION }}_macos_universal.dmg" Kuurier_latest_macos.dmg
+            ln -sf "Kuurier_${{ env.VERSION }}_windows_x64_setup.exe" Kuurier_latest_windows.exe
+            ln -sf "Kuurier_${{ env.VERSION }}_linux_x64.AppImage" Kuurier_latest_linux.AppImage
+            ln -sf "Kuurier_${{ env.VERSION }}_linux_x64.deb" Kuurier_latest_linux.deb
+
+            echo "Downloads directory:"
+            ls -lh ~/kuurier/downloads/

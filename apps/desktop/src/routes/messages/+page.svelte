@@ -11,6 +11,7 @@
 		selectChannel,
 		sendMessage
 	} from '$lib/stores/messaging';
+	import { authState } from '$lib/stores/auth';
 
 	let messageInput = $state('');
 	let sending = $state(false);
@@ -47,10 +48,33 @@
 		return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
 
-	function channelName(ch: { name: string | null; channel_type: string; id: string }): string {
+	function channelName(ch: { name: string | null; channel_type: string; id: string; other_user_display_name?: string | null }): string {
+		if (ch.channel_type === 'dm' && ch.other_user_display_name) return ch.other_user_display_name;
 		if (ch.name) return ch.name;
 		if (ch.channel_type === 'dm') return `DM ${ch.id.slice(0, 8)}`;
 		return ch.id.slice(0, 8);
+	}
+
+	function senderLabel(msg: { sender_id: string; sender_display_name: string | null }): string {
+		return msg.sender_display_name || msg.sender_id.slice(0, 8);
+	}
+
+	function isOwnMessage(senderId: string): boolean {
+		return senderId === $authState.user_id;
+	}
+
+	// Deterministic color from user ID for visual differentiation in group chats
+	const USER_COLORS = [
+		'#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444',
+		'#06b6d4', '#f59e0b', '#ec4899', '#14b8a6', '#6366f1'
+	];
+
+	function userColor(userId: string): string {
+		let hash = 0;
+		for (let i = 0; i < userId.length; i++) {
+			hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0;
+		}
+		return USER_COLORS[((hash % USER_COLORS.length) + USER_COLORS.length) % USER_COLORS.length];
 	}
 </script>
 
@@ -100,12 +124,22 @@
 					<div class="empty">No messages yet. Say hello!</div>
 				{:else}
 					{#each [...$messages].reverse() as msg (msg.id)}
-						<div class="message">
-							<div class="message-meta">
-								<span class="message-sender">{msg.sender_id.slice(0, 8)}</span>
-								<span class="message-time">{formatTime(msg.created_at)}</span>
+						{@const own = isOwnMessage(msg.sender_id)}
+						<div class="message" class:own>
+							{#if !own}
+								<div class="message-meta">
+									<span class="message-sender" style:color={userColor(msg.sender_id)}>
+										{senderLabel(msg)}
+									</span>
+									<span class="message-time">{formatTime(msg.created_at)}</span>
+								</div>
+							{/if}
+							<div class="message-bubble" class:own>
+								<div class="message-body">{msg.content ?? '[encrypted]'}</div>
 							</div>
-							<div class="message-body">{msg.content ?? '[encrypted]'}</div>
+							{#if own}
+								<span class="message-time own-time">{formatTime(msg.created_at)}</span>
+							{/if}
 						</div>
 					{/each}
 				{/if}
@@ -241,11 +275,19 @@
 		padding: 16px 20px;
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 6px;
 	}
 
 	.message {
-		padding: 8px 0;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		max-width: 75%;
+	}
+
+	.message.own {
+		align-items: flex-end;
+		align-self: flex-end;
 	}
 
 	.message-meta {
@@ -266,10 +308,27 @@
 		color: var(--color-text-secondary);
 	}
 
+	.own-time {
+		margin-top: 2px;
+	}
+
+	.message-bubble {
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		padding: 8px 12px;
+	}
+
+	.message-bubble.own {
+		background: color-mix(in srgb, var(--color-accent) 15%, var(--color-surface));
+		border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border));
+	}
+
 	.message-body {
 		font-size: 14px;
 		line-height: 1.4;
 		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
 	.compose-bar {

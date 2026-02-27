@@ -36,7 +36,8 @@ type Channel struct {
 	LastMessage  *string   `json:"last_message,omitempty"`      // Preview (encrypted)
 	LastActivity *time.Time `json:"last_activity,omitempty"`
 	// For DMs, include the other user's info
-	OtherUserID  *string   `json:"other_user_id,omitempty"`
+	OtherUserID          *string   `json:"other_user_id,omitempty"`
+	OtherUserDisplayName *string   `json:"other_user_display_name,omitempty"`
 }
 
 // CreateChannelRequest is the request for creating a channel
@@ -179,14 +180,20 @@ func (h *ChannelHandler) ListChannels(c *gin.Context) {
 			continue
 		}
 
-		// For DMs, get the other user's ID
+		// For DMs, get the other user's ID and display name
 		if ch.Type == "dm" {
 			var otherUserID string
+			var otherDisplayName *string
 			h.db.Pool().QueryRow(ctx, `
-				SELECT user_id FROM channel_members WHERE channel_id = $1 AND user_id != $2 LIMIT 1
-			`, ch.ID, userID).Scan(&otherUserID)
+				SELECT cm.user_id, u.display_name
+				FROM channel_members cm
+				JOIN users u ON cm.user_id = u.id
+				WHERE cm.channel_id = $1 AND cm.user_id != $2
+				LIMIT 1
+			`, ch.ID, userID).Scan(&otherUserID, &otherDisplayName)
 			if otherUserID != "" {
 				ch.OtherUserID = &otherUserID
+				ch.OtherUserDisplayName = otherDisplayName
 			}
 		}
 

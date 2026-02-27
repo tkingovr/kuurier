@@ -30,12 +30,15 @@ export interface Channel {
 	unread_count: number;
 	last_message: unknown;
 	members: unknown[];
+	other_user_id: string | null;
+	other_user_display_name: string | null;
 }
 
 export interface Message {
 	id: string;
 	channel_id: string;
 	sender_id: string;
+	sender_display_name: string | null;
 	ciphertext: string | null;
 	content: string | null;
 	message_type: string;
@@ -83,6 +86,21 @@ export async function logout(): Promise<void> {
 
 export async function panicWipe(): Promise<void> {
 	return invoke('panic_wipe');
+}
+
+// ========== Profile API ==========
+
+export async function getMe(): Promise<{
+	id: string;
+	trust_score: number;
+	is_verified: boolean;
+	display_name: string | null;
+}> {
+	return invoke('get_me');
+}
+
+export async function setDisplayName(name: string): Promise<{ display_name: string }> {
+	return invoke('set_display_name', { name });
 }
 
 // ========== Tor API ==========
