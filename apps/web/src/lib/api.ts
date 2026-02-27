@@ -139,11 +139,11 @@ async function apiDelete(path: string): Promise<unknown> {
 export async function authRegister(
 	publicKeyBase64: string,
 	inviteCode: string
-): Promise<{ user_id: string; challenge: string; challenge_mac: string }> {
+): Promise<{ user_id: string; challenge: string; trust_score: number }> {
 	return apiPost('/auth/register', {
 		public_key: publicKeyBase64,
 		invite_code: inviteCode
-	}) as Promise<{ user_id: string; challenge: string; challenge_mac: string }>;
+	}) as Promise<{ user_id: string; challenge: string; trust_score: number }>;
 }
 
 export async function authVerify(
@@ -212,8 +212,8 @@ export async function sendMessage(channelId: string, ciphertext: string): Promis
 	});
 }
 
-export async function createDm(userId: string): Promise<Channel> {
-	return apiPost('/channels/dm', { user_id: userId }) as Promise<Channel>;
+export async function createDm(userId: string): Promise<{ channel_id: string; other_user_id: string }> {
+	return apiPost('/channels/dm', { user_id: userId }) as Promise<{ channel_id: string; other_user_id: string }>;
 }
 
 // ========== Events ==========

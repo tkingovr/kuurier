@@ -149,7 +149,7 @@ export async function sendMessage(channelId: string, content: string): Promise<u
 	return invoke('send_message', { channelId, content });
 }
 
-export async function createDm(userId: string): Promise<Channel> {
+export async function createDm(userId: string): Promise<{ channel_id: string; other_user_id: string }> {
 	return invoke('create_dm', { userId });
 }
 

@@ -24,7 +24,7 @@ pub struct AuthRegisterRequest {
 pub struct AuthRegisterResponse {
     pub user_id: String,
     pub challenge: String,
-    pub challenge_mac: String,
+    pub trust_score: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -110,6 +110,13 @@ pub struct UserProfile {
     pub is_verified: bool,
     pub created_at: String,
     pub display_name: Option<String>,
+    pub vouch_count: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateDmResponse {
+    pub channel_id: String,
+    pub other_user_id: String,
 }
 
 impl ApiClient {
@@ -297,7 +304,7 @@ impl ApiClient {
         self.post("/messages", &body).await
     }
 
-    pub async fn create_dm(&self, user_id: &str) -> Result<Channel, String> {
+    pub async fn create_dm(&self, user_id: &str) -> Result<CreateDmResponse, String> {
         let body = serde_json::json!({ "user_id": user_id });
         let resp = self.post("/channels/dm", &body).await?;
         serde_json::from_value(resp).map_err(|e| format!("Parse error: {}", e))
