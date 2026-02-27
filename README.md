@@ -1,6 +1,6 @@
 # Kuurier
 
-**The Activitst OS.**
+**The Activist OS.**
 
 Kuurier is a secure, privacy-first platform for activists to organize, communicate, and stay informed. Built with end-to-end encryption and anonymous authentication by design.
 
@@ -18,7 +18,7 @@ Kuurier solves this:
 - **See the world** — A global map showing activist activity in real-time. Zoom into any hotspot.
 - **Organize events** — Create and discover protests, strikes, fundraisers, mutual aid.
 - **Emergency alerts** — SOS system for when help is needed. Trusted activists can broadcast to nearby users.
-- **Web of trust** — Build credibility through community vouching.
+- **Web of trust** — Build credibility through community vouching. No central authority decides who's trustworthy.
 
 ---
 
@@ -34,6 +34,7 @@ Kuurier is built for people whose safety depends on their privacy.
 | **Panic button** | Instantly wipe all local data if needed. |
 | **Duress mode** | Secondary PIN opens a fake empty account. |
 | **No IP logging** | Request logs contain no identifying information. |
+| **Invite-only** | Web of trust — new users join through existing trusted members. |
 | **Open source** | Full transparency. Audit the code yourself. |
 
 ---
@@ -43,13 +44,17 @@ Kuurier is built for people whose safety depends on their privacy.
 ```
 kuurier/
 ├── apps/
-│   └── ios/                 # iOS app (Swift/SwiftUI)
-├── server/                  # Backend API (Go)
+│   ├── ios/                 # iOS app (Swift/SwiftUI)
+│   ├── web/                 # Web app (SvelteKit SPA)
+│   └── desktop/             # Desktop app (Tauri + SvelteKit)
+├── server/                  # Backend API (Go) + deployment configs
 │   ├── cmd/                 # Entry points
 │   ├── internal/            # Core logic
-│   └── migrations/          # Database schema
-├── infra/                   # Docker, deployment
-└── docs/                    # Documentation
+│   ├── migrations/          # Database schema
+│   ├── nginx/               # Nginx configs (API, website, web app)
+│   └── setup.sh             # One-command server deployment
+├── website/                 # Static project website (HTML)
+└── README.md
 ```
 
 ### Tech Stack
@@ -57,53 +62,98 @@ kuurier/
 | Layer | Technology |
 |-------|------------|
 | iOS | Swift, SwiftUI, CryptoKit |
+| Web | SvelteKit, TypeScript |
+| Desktop | Tauri, SvelteKit |
 | Backend | Go, Gin framework |
 | Database | PostgreSQL + PostGIS |
 | Cache | Redis |
-| Maps | MapLibre + OpenStreetMap |
+| Maps | Leaflet + OpenStreetMap |
+| Proxy | Nginx (blue-green deployment) |
+| TLS | Let's Encrypt (auto-renewal) |
 
 ---
 
-## Quick Start
+## Deploy Your Own Server
+
+Kuurier is designed to be self-hosted. One script gets you a full production deployment with HTTPS, blue-green deployments, and zero-downtime updates.
 
 ### Prerequisites
 
-- Docker & Docker Compose
+- A Linux server (Ubuntu/Debian recommended, 1GB+ RAM)
+- A domain with 3 A records pointing to your server:
+  - `yourdomain.com` → your server IP
+  - `api.yourdomain.com` → your server IP
+  - `app.yourdomain.com` → your server IP
+- Ports 80 and 443 open
+
+### One-command setup
+
+```bash
+# Clone the repo
+git clone https://github.com/tkingovr/kuurier.git
+cd kuurier/server
+
+# Run setup (installs Docker if needed, generates secrets, gets TLS certs)
+./setup.sh --domain yourdomain.com
+```
+
+That's it. The script handles everything:
+1. Installs Docker and Docker Compose (if missing)
+2. Generates secure `.env` with random secrets
+3. Builds the API server Docker image
+4. Starts PostgreSQL, Redis, Nginx, and the API (blue-green)
+5. Obtains TLS certificates from Let's Encrypt for all 3 domains
+6. Verifies all endpoints are working
+
+### What you get
+
+| URL | What |
+|-----|------|
+| `https://yourdomain.com` | Project website |
+| `https://app.yourdomain.com` | Web application (SPA) |
+| `https://api.yourdomain.com` | API server |
+
+### Managing your deployment
+
+```bash
+# Check status
+./deploy.sh --status
+
+# Deploy a new version (zero-downtime blue-green)
+./deploy.sh
+
+# Rollback to previous version
+./deploy.sh --rollback
+```
+
+---
+
+## Local Development
+
+### Prerequisites
+
 - Go 1.22+
+- Docker & Docker Compose
+- Node.js 20+ (for web app)
 - Xcode 15+ (for iOS)
 
-### 1. Clone the repo
+### Start the dev environment
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/kuurier.git
-cd kuurier
+# Start database and Redis
+cd server
+docker compose up -d postgres redis
+
+# Run the API server
+go run cmd/server/main.go
+
+# In another terminal — run the web app
+cd apps/web
+npm install
+npm run dev
 ```
 
-### 2. Start the development environment
-
-```bash
-make dev
-```
-
-This starts PostgreSQL, Redis, and MinIO.
-
-### 3. Run database migrations
-
-```bash
-make db-migrate
-```
-
-### 4. Start the server
-
-```bash
-make server
-```
-
-Server runs at `http://localhost:8080`
-
-### 5. Open the iOS app
-
-Open `apps/ios/Kuurier/Kuurier.xcodeproj` in Xcode, select a simulator, and run.
+The API runs at `http://localhost:8080` and the web app at `http://localhost:5173`.
 
 ---
 
@@ -114,50 +164,29 @@ Open `apps/ios/Kuurier/Kuurier.xcodeproj` in Xcode, select a simulator, and run.
 Kuurier uses challenge-response authentication with Ed25519 signatures. No passwords.
 
 ```
-POST /api/v1/auth/register   # Submit public key, get challenge
-POST /api/v1/auth/verify     # Submit signed challenge, get JWT
+POST /api/v1/auth/register     # Submit public key + invite code
+POST /api/v1/auth/challenge    # Request a challenge
+POST /api/v1/auth/verify       # Sign challenge, get JWT
 ```
 
-### Feed
+### Core Endpoints
 
 ```
-GET  /api/v1/feed            # Personalized feed based on subscriptions
-POST /api/v1/feed/posts      # Create a post
-GET  /api/v1/topics          # List available topics
+GET  /api/v1/feed              # Personalized feed
+POST /api/v1/feed/posts        # Create a post
+GET  /api/v1/events            # List events
+POST /api/v1/events            # Create event
+GET  /api/v1/alerts            # Active SOS alerts
+POST /api/v1/alerts            # Create alert
+GET  /api/v1/map/clusters      # Map data
 ```
 
-### Subscriptions
+### Invites & Trust
 
 ```
-GET    /api/v1/subscriptions      # List your subscriptions
-POST   /api/v1/subscriptions      # Subscribe to topic or location
-DELETE /api/v1/subscriptions/:id  # Unsubscribe
-```
-
-### Map
-
-```
-GET /api/v1/map/heatmap      # Global activity heatmap
-GET /api/v1/map/clusters     # Clustered posts for map view
-GET /api/v1/map/nearby       # Posts near a location
-```
-
-### Events
-
-```
-GET    /api/v1/events            # List upcoming events
-POST   /api/v1/events            # Create event (requires trust score 50+)
-POST   /api/v1/events/:id/rsvp   # RSVP to event
-GET    /api/v1/events/nearby     # Events near a location
-```
-
-### SOS Alerts
-
-```
-GET  /api/v1/alerts              # List active alerts
-POST /api/v1/alerts              # Create alert (verified users only)
-POST /api/v1/alerts/:id/respond  # Respond to alert
-GET  /api/v1/alerts/nearby       # Alerts in your area
+POST /api/v1/invites           # Generate invite code (trust 30+)
+GET  /api/v1/invites           # List your invites
+GET  /api/v1/invites/validate/:code  # Check if code is valid
 ```
 
 ---
@@ -169,14 +198,12 @@ Users build credibility through community vouching:
 | Trust Score | Capabilities |
 |-------------|--------------|
 | 0 | Browse only |
-| 30+ | Can create posts |
+| 15 | New user (joined via invite) |
+| 30+ | Can create posts, generate invites |
 | 50+ | Can create events |
-| 100+ | Can broadcast SOS alerts |
+| 100 | Can broadcast SOS alerts |
 
-Trust is earned by:
-- Being vouched for by existing trusted users
-- Active participation over time
-- Verification by established organizations
+Trust is earned through vouches from existing trusted users. The system is fully decentralized — no admin approvals.
 
 ---
 
@@ -190,7 +217,7 @@ Kuurier is built by and for activists. Contributions welcome.
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-### Development Guidelines
+### Guidelines
 
 - Security is non-negotiable. Every PR is reviewed for security implications.
 - Privacy by design. If you don't need to store data, don't.
@@ -202,20 +229,25 @@ Kuurier is built by and for activists. Contributions welcome.
 
 Found a security issue? **Do not open a public issue.**
 
-Email security concerns to: [security contact to be added]
-
 Please allow reasonable time for fixes before public disclosure.
 
 ---
 
 ## Roadmap
 
-- [x] Core authentication system
+- [x] Anonymous Ed25519 authentication
+- [x] Invite-only web of trust
 - [x] Feed with topic/location subscriptions
 - [x] Event creation and RSVP
 - [x] SOS alert system
-- [x] iOS app foundation
-- [ ] Push notifications
+- [x] Real-time WebSocket messaging
+- [x] News feed with RSS aggregation
+- [x] iOS app
+- [x] Web app (SvelteKit SPA)
+- [x] Desktop app (Tauri)
+- [x] One-command server deployment
+- [x] Blue-green zero-downtime deploys
+- [ ] Push notifications (APNs)
 - [ ] Android app
 - [ ] E2E encrypted direct messages
 - [ ] Offline mode with sync
@@ -228,9 +260,5 @@ Please allow reasonable time for fixes before public disclosure.
 [AGPL-3.0](LICENSE) — If you modify and deploy Kuurier, you must share your changes.
 
 ---
-
-## Acknowledgments
-
-Built with solidarity for everyone fighting for a better world.
 
 *Stay safe. Stay connected. Stay organized.*

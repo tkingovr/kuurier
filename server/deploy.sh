@@ -93,42 +93,29 @@ health_check() {
 
 switch_traffic() {
     local target=$1
-    local nginx_conf="$SCRIPT_DIR/nginx/active.conf"
+    local current=$(get_active_env)
 
     log_info "Switching traffic to $target..."
 
-    # Generate new nginx config
-    cat > "$nginx_conf" << EOF
-# Active environment: ${target^^}
-# Switched at: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-# This file is managed by deploy.sh - do not edit manually
+    if [[ "$target" == "$current" ]]; then
+        log_warning "Already serving from $target, nothing to switch"
+        return 0
+    fi
 
-server {
-    listen 80;
-    server_name _;
+    # Swap api-blue <-> api-green in all nginx conf files (except nginx.conf)
+    local from="api-${current}"
+    local to="api-${target}"
 
-    location /health {
-        proxy_pass http://api-${target}/health;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-    }
+    for conf in "$SCRIPT_DIR"/nginx/*.conf; do
+        [[ "$(basename "$conf")" == "nginx.conf" ]] && continue
+        if grep -q "$from" "$conf"; then
+            sed -i "s|${from}|${to}|g" "$conf"
+            log_info "Updated $(basename "$conf"): $from -> $to"
+        fi
+    done
 
-    location / {
-        proxy_pass http://api-${target};
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header Connection "";
-
-        # WebSocket support
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 86400;
-    }
-}
-EOF
+    # Update comment at top of active.conf
+    sed -i "1s|.*|# Active environment: ${target^^}|" "$SCRIPT_DIR/nginx/active.conf"
 
     # Reload nginx (no downtime)
     if docker exec kuurier-nginx nginx -t 2>/dev/null; then
@@ -136,7 +123,15 @@ EOF
         set_active_env "$target"
         log_success "Traffic switched to $target"
     else
-        log_error "Nginx config validation failed!"
+        log_error "Nginx config validation failed! Reverting..."
+        # Revert the sed changes
+        for conf in "$SCRIPT_DIR"/nginx/*.conf; do
+            [[ "$(basename "$conf")" == "nginx.conf" ]] && continue
+            if grep -q "$to" "$conf"; then
+                sed -i "s|${to}|${from}|g" "$conf"
+            fi
+        done
+        sed -i "1s|.*|# Active environment: ${current^^}|" "$SCRIPT_DIR/nginx/active.conf"
         return 1
     fi
 }

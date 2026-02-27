@@ -51,6 +51,9 @@ apps/desktop/build/
 apps/web/build/
 apps/web/.svelte-kit/
 
+# Server build artifacts
+server/webapp-build/
+
 # Desktop app
 apps/desktop/.svelte-kit/
 

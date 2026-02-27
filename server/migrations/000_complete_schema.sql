@@ -285,6 +285,37 @@ CREATE TABLE quiet_hours (
 CREATE INDEX idx_quiet_hours_user ON quiet_hours(user_id);
 
 -- ============================================================================
+-- MULTI-DEVICE SUPPORT
+-- ============================================================================
+
+-- Devices table: tracks all devices for a user
+CREATE TABLE devices (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_type     VARCHAR(20) NOT NULL CHECK (device_type IN ('ios', 'android', 'desktop', 'web')),
+    device_name     VARCHAR(100),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_active_at  TIMESTAMPTZ,
+    is_active       BOOLEAN DEFAULT true,
+    UNIQUE(user_id, id)
+);
+
+CREATE INDEX idx_devices_user_id ON devices(user_id);
+
+-- Device link requests: temporary relay for QR code device linking
+CREATE TABLE device_link_requests (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id         UUID NOT NULL,
+    encrypted_payload TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at        TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '5 minutes'),
+    consumed          BOOLEAN DEFAULT false
+);
+
+CREATE INDEX idx_device_link_device_id ON device_link_requests(device_id);
+CREATE INDEX idx_device_link_expires ON device_link_requests(expires_at);
+
+-- ============================================================================
 -- SIGNAL PROTOCOL KEYS
 -- ============================================================================
 
@@ -292,9 +323,13 @@ CREATE TABLE signal_identity_keys (
     user_id         UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     identity_key    BYTEA NOT NULL,
     registration_id INTEGER NOT NULL,
+    device_id       UUID REFERENCES devices(id) ON DELETE CASCADE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX signal_identity_keys_user_device_unique
+    ON signal_identity_keys(user_id, COALESCE(device_id, '00000000-0000-0000-0000-000000000000'::uuid));
 
 CREATE TABLE signal_signed_prekeys (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -302,6 +337,7 @@ CREATE TABLE signal_signed_prekeys (
     key_id          INTEGER NOT NULL,
     public_key      BYTEA NOT NULL,
     signature       BYTEA NOT NULL,
+    device_id       UUID REFERENCES devices(id) ON DELETE CASCADE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(user_id, key_id)
 );
@@ -313,6 +349,7 @@ CREATE TABLE signal_prekeys (
     user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     key_id          INTEGER NOT NULL,
     public_key      BYTEA NOT NULL,
+    device_id       UUID REFERENCES devices(id) ON DELETE CASCADE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(user_id, key_id)
 );
@@ -523,6 +560,14 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER events_updated_at BEFORE UPDATE ON events FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER alert_responses_updated_at BEFORE UPDATE ON alert_responses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Clean up expired device link requests
+CREATE OR REPLACE FUNCTION cleanup_expired_link_requests()
+RETURNS void AS $$
+BEGIN
+    DELETE FROM device_link_requests WHERE expires_at < NOW() OR consumed = true;
+END;
+$$ LANGUAGE plpgsql;
 
 -- Signal Protocol functions
 CREATE OR REPLACE FUNCTION get_prekey_count(uid UUID)
