@@ -96,6 +96,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 		{
 			// User routes
 			protected.GET("/me", authHandler.GetCurrentUser)
+			protected.PUT("/me/display-name", authHandler.SetDisplayName)
 			protected.DELETE("/me", authHandler.DeleteAccount)
 
 			// Vouch system (web of trust)

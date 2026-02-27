@@ -25,6 +25,7 @@ CREATE TABLE users (
     is_verified     BOOLEAN NOT NULL DEFAULT FALSE,  -- Can send SOS alerts
     invited_by      UUID REFERENCES users(id) ON DELETE SET NULL,
     invite_code_used VARCHAR(10),
+    display_name    VARCHAR(30),
 
     CONSTRAINT public_key_length CHECK (octet_length(public_key) = 32)
 );

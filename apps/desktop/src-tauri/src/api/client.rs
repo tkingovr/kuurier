@@ -52,6 +52,8 @@ pub struct Channel {
     pub unread_count: Option<i64>,
     pub last_message: Option<Value>,
     pub members: Option<Vec<Value>>,
+    pub other_user_id: Option<String>,
+    pub other_user_display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +61,7 @@ pub struct Message {
     pub id: String,
     pub channel_id: String,
     pub sender_id: String,
+    pub sender_display_name: Option<String>,
     pub ciphertext: Option<String>,
     pub content: Option<String>,
     pub message_type: String,
@@ -103,10 +106,10 @@ pub struct Alert {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserProfile {
     pub id: String,
-    pub public_key: String,
     pub trust_score: i32,
     pub is_verified: bool,
     pub created_at: String,
+    pub display_name: Option<String>,
 }
 
 impl ApiClient {
@@ -246,6 +249,11 @@ impl ApiClient {
     pub async fn get_me(&self) -> Result<UserProfile, String> {
         let resp = self.get("/me").await?;
         serde_json::from_value(resp).map_err(|e| format!("Parse error: {}", e))
+    }
+
+    pub async fn set_display_name(&self, name: &str) -> Result<Value, String> {
+        let body = serde_json::json!({ "display_name": name });
+        self.put("/me/display-name", &body).await
     }
 
     // ---- Feed endpoints ----

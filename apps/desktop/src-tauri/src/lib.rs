@@ -249,6 +249,23 @@ async fn flag_post(id: String, state: tauri::State<'_, AppState>) -> Result<Valu
         .await
 }
 
+// ========== Profile Commands ==========
+
+#[tauri::command]
+async fn get_me(state: tauri::State<'_, AppState>) -> Result<Value, String> {
+    let api = state.api.read().await;
+    let api = api.as_ref().ok_or("API client not initialized")?;
+    let profile = api.get_me().await?;
+    serde_json::to_value(profile).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_display_name(name: String, state: tauri::State<'_, AppState>) -> Result<Value, String> {
+    let api = state.api.read().await;
+    let api = api.as_ref().ok_or("API client not initialized")?;
+    api.set_display_name(&name).await
+}
+
 // ========== Messaging Commands ==========
 
 #[tauri::command]
@@ -407,6 +424,9 @@ pub fn run() {
             create_post,
             verify_post,
             flag_post,
+            // Profile
+            get_me,
+            set_display_name,
             // Messaging
             list_channels,
             get_messages,

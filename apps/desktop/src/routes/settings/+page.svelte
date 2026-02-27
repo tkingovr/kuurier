@@ -2,10 +2,12 @@
 	import { onMount } from 'svelte';
 	import { authState, logout, panicWipe } from '$lib/stores/auth';
 	import { torStatus, toggleTor, reconnectTor, connectionLabel } from '$lib/stores/connection';
-	import { getConfig, setApiUrl, type AppConfig } from '$lib/api';
+	import { getConfig, setApiUrl, setDisplayName, getMe, type AppConfig } from '$lib/api';
 
 	let config = $state<AppConfig | null>(null);
 	let apiUrlInput = $state('');
+	let displayNameInput = $state('');
+	let displayNameSaved = $state(false);
 	let showPanicConfirm = $state(false);
 
 	onMount(async () => {
@@ -15,6 +17,14 @@
 		} catch (e) {
 			console.error('Failed to load config:', e);
 		}
+		try {
+			const profile = await getMe();
+			if (profile.display_name) {
+				displayNameInput = profile.display_name;
+			}
+		} catch (e) {
+			console.error('Failed to load profile:', e);
+		}
 	});
 
 	async function handleSaveApiUrl() {
@@ -23,6 +33,17 @@
 			await setApiUrl(apiUrlInput);
 		} catch (e) {
 			console.error('Failed to save API URL:', e);
+		}
+	}
+
+	async function handleSaveDisplayName() {
+		if (!displayNameInput.trim()) return;
+		try {
+			await setDisplayName(displayNameInput.trim());
+			displayNameSaved = true;
+			setTimeout(() => (displayNameSaved = false), 2000);
+		} catch (e) {
+			console.error('Failed to save display name:', e);
 		}
 	}
 
@@ -45,6 +66,16 @@
 	<div class="settings-content">
 		<section class="settings-section">
 			<h3>Identity</h3>
+			<div class="setting-row vertical">
+				<span class="setting-label">Display Name</span>
+				<p class="setting-desc">Visible to others in channels and DMs.</p>
+				<div class="input-row">
+					<input type="text" bind:value={displayNameInput} placeholder="Enter a display name" maxlength="30" />
+					<button class="btn-save" onclick={handleSaveDisplayName}>
+						{displayNameSaved ? 'Saved' : 'Save'}
+					</button>
+				</div>
+			</div>
 			<div class="setting-row">
 				<span class="setting-label">User ID</span>
 				<code class="setting-value">{$authState.user_id ?? 'N/A'}</code>

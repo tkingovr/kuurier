@@ -25,14 +25,15 @@ func NewMessageHandler(cfg *config.Config, db *storage.Postgres) *MessageHandler
 
 // Message represents a chat message
 type Message struct {
-	ID          string     `json:"id"`
-	ChannelID   string     `json:"channel_id"`
-	SenderID    string     `json:"sender_id"`
-	Ciphertext  []byte     `json:"ciphertext"`
-	MessageType string     `json:"message_type"`
-	ReplyToID   *string    `json:"reply_to_id,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	EditedAt    *time.Time `json:"edited_at,omitempty"`
+	ID                string     `json:"id"`
+	ChannelID         string     `json:"channel_id"`
+	SenderID          string     `json:"sender_id"`
+	SenderDisplayName *string    `json:"sender_display_name,omitempty"`
+	Ciphertext        []byte     `json:"ciphertext"`
+	MessageType       string     `json:"message_type"`
+	ReplyToID         *string    `json:"reply_to_id,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	EditedAt          *time.Time `json:"edited_at,omitempty"`
 }
 
 // SendMessageRequest is the request body for sending a message
@@ -84,12 +85,14 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 	h.db.Pool().Exec(c.Request.Context(),
 		`UPDATE channels SET updated_at = NOW() WHERE id = $1`, req.ChannelID)
 
-	// Fetch the created message
+	// Fetch the created message with sender display name
 	var msg Message
 	err = h.db.Pool().QueryRow(c.Request.Context(),
-		`SELECT id, channel_id, sender_id, ciphertext, message_type, reply_to_id, created_at, edited_at
-		 FROM messages WHERE id = $1`, messageID).Scan(
-		&msg.ID, &msg.ChannelID, &msg.SenderID, &msg.Ciphertext,
+		`SELECT m.id, m.channel_id, m.sender_id, u.display_name, m.ciphertext, m.message_type, m.reply_to_id, m.created_at, m.edited_at
+		 FROM messages m
+		 LEFT JOIN users u ON m.sender_id = u.id
+		 WHERE m.id = $1`, messageID).Scan(
+		&msg.ID, &msg.ChannelID, &msg.SenderID, &msg.SenderDisplayName, &msg.Ciphertext,
 		&msg.MessageType, &msg.ReplyToID, &msg.CreatedAt, &msg.EditedAt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch message"})
@@ -130,12 +133,13 @@ func (h *MessageHandler) GetMessages(c *gin.Context) {
 		}
 	}
 
-	// Fetch messages
+	// Fetch messages with sender display names
 	rows, err := h.db.Pool().Query(c.Request.Context(),
-		`SELECT id, channel_id, sender_id, ciphertext, message_type, reply_to_id, created_at, edited_at
-		 FROM messages
-		 WHERE channel_id = $1 AND created_at < $2 AND deleted_at IS NULL
-		 ORDER BY created_at DESC
+		`SELECT m.id, m.channel_id, m.sender_id, u.display_name, m.ciphertext, m.message_type, m.reply_to_id, m.created_at, m.edited_at
+		 FROM messages m
+		 LEFT JOIN users u ON m.sender_id = u.id
+		 WHERE m.channel_id = $1 AND m.created_at < $2 AND m.deleted_at IS NULL
+		 ORDER BY m.created_at DESC
 		 LIMIT $3`,
 		channelID, beforeTime, limit)
 	if err != nil {
@@ -147,7 +151,7 @@ func (h *MessageHandler) GetMessages(c *gin.Context) {
 	var messages []Message
 	for rows.Next() {
 		var msg Message
-		if err := rows.Scan(&msg.ID, &msg.ChannelID, &msg.SenderID, &msg.Ciphertext,
+		if err := rows.Scan(&msg.ID, &msg.ChannelID, &msg.SenderID, &msg.SenderDisplayName, &msg.Ciphertext,
 			&msg.MessageType, &msg.ReplyToID, &msg.CreatedAt, &msg.EditedAt); err != nil {
 			continue
 		}

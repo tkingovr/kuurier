@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -337,11 +338,12 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 	var trustScore int
 	var isVerified bool
 	var createdAt time.Time
+	var displayName *string
 
 	err := h.db.Pool().QueryRow(ctx,
-		"SELECT trust_score, is_verified, created_at FROM users WHERE id = $1",
+		"SELECT trust_score, is_verified, created_at, display_name FROM users WHERE id = $1",
 		userID,
-	).Scan(&trustScore, &isVerified, &createdAt)
+	).Scan(&trustScore, &isVerified, &createdAt, &displayName)
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
@@ -356,12 +358,50 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 	).Scan(&vouchCount)
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":          userID,
-		"trust_score": trustScore,
-		"is_verified": isVerified,
-		"created_at":  createdAt,
-		"vouch_count": vouchCount,
+		"id":           userID,
+		"trust_score":  trustScore,
+		"is_verified":  isVerified,
+		"created_at":   createdAt,
+		"vouch_count":  vouchCount,
+		"display_name": displayName,
 	})
+}
+
+// SetDisplayNameRequest is the request body for setting a display name
+type SetDisplayNameRequest struct {
+	DisplayName string `json:"display_name" binding:"required,min=1,max=30"`
+}
+
+// SetDisplayName sets the current user's display name
+func (h *Handler) SetDisplayName(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req SetDisplayNameRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "display name must be 1-30 characters"})
+		return
+	}
+
+	displayName := strings.TrimSpace(req.DisplayName)
+	if len(displayName) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "display name cannot be blank"})
+		return
+	}
+	if len(displayName) > 30 {
+		displayName = displayName[:30]
+	}
+
+	ctx := c.Request.Context()
+	_, err := h.db.Pool().Exec(ctx,
+		"UPDATE users SET display_name = $1 WHERE id = $2",
+		displayName, userID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"display_name": displayName})
 }
 
 // GetUserProfile returns another user's public profile
@@ -376,11 +416,12 @@ func (h *Handler) GetUserProfile(c *gin.Context) {
 	var trustScore int
 	var isVerified bool
 	var createdAt time.Time
+	var displayName *string
 
 	err := h.db.Pool().QueryRow(ctx,
-		"SELECT trust_score, is_verified, created_at FROM users WHERE id = $1",
+		"SELECT trust_score, is_verified, created_at, display_name FROM users WHERE id = $1",
 		targetUserID,
-	).Scan(&trustScore, &isVerified, &createdAt)
+	).Scan(&trustScore, &isVerified, &createdAt, &displayName)
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
@@ -409,13 +450,14 @@ func (h *Handler) GetUserProfile(c *gin.Context) {
 	).Scan(&requestingUserTrust)
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":          targetUserID,
-		"trust_score": trustScore,
-		"is_verified": isVerified,
-		"created_at":  createdAt,
-		"vouch_count": vouchCount,
-		"has_vouched": hasVouched,
-		"can_vouch":   requestingUserTrust >= 30 && !hasVouched && requestingUserID != targetUserID,
+		"id":           targetUserID,
+		"trust_score":  trustScore,
+		"is_verified":  isVerified,
+		"created_at":   createdAt,
+		"vouch_count":  vouchCount,
+		"has_vouched":  hasVouched,
+		"can_vouch":    requestingUserTrust >= 30 && !hasVouched && requestingUserID != targetUserID,
+		"display_name": displayName,
 	})
 }
 

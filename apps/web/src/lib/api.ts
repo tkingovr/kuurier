@@ -27,12 +27,15 @@ export interface Channel {
 	unread_count: number;
 	last_message: unknown;
 	members: unknown[];
+	other_user_id: string | null;
+	other_user_display_name: string | null;
 }
 
 export interface Message {
 	id: string;
 	channel_id: string;
 	sender_id: string;
+	sender_display_name: string | null;
 	ciphertext: string | null;
 	content: string | null;
 	message_type: string;
@@ -101,6 +104,23 @@ async function apiPost(path: string, body?: unknown): Promise<unknown> {
 	return resp.json();
 }
 
+async function apiPut(path: string, body?: unknown): Promise<unknown> {
+	const token = getToken();
+	const resp = await fetch(`${API_BASE}${path}`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json',
+			...(token ? { Authorization: `Bearer ${token}` } : {})
+		},
+		body: body ? JSON.stringify(body) : undefined
+	});
+	if (!resp.ok) {
+		const respBody = await resp.json().catch(() => ({}));
+		throw new Error((respBody as { error?: string }).error || `HTTP ${resp.status}`);
+	}
+	return resp.json();
+}
+
 async function apiDelete(path: string): Promise<unknown> {
 	const token = getToken();
 	const resp = await fetch(`${API_BASE}${path}`, {
@@ -142,8 +162,13 @@ export async function getMe(): Promise<{
 	id: string;
 	trust_score: number;
 	is_verified: boolean;
+	display_name: string | null;
 }> {
-	return apiGet('/me') as Promise<{ id: string; trust_score: number; is_verified: boolean }>;
+	return apiGet('/me') as Promise<{ id: string; trust_score: number; is_verified: boolean; display_name: string | null }>;
+}
+
+export async function setDisplayName(name: string): Promise<{ display_name: string }> {
+	return apiPut('/me/display-name', { display_name: name }) as Promise<{ display_name: string }>;
 }
 
 // ========== Feed ==========
