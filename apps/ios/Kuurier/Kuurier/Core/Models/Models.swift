@@ -515,6 +515,28 @@ struct FeedResponse: Codable {
     let offset: Int
 }
 
+struct FeedV2Response: Codable {
+    let items: [FeedV2Item]
+    let limit: Int
+    let offset: Int
+    let nextOffset: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case limit
+        case offset
+        case nextOffset = "next_offset"
+    }
+}
+
+struct FeedV2Item: Codable, Identifiable {
+    let id: String
+    let type: String
+    let post: Post?
+    let article: NewsArticle?
+    let why: [String]?
+}
+
 struct EventsResponse: Codable {
     let events: [Event]
     let limit: Int

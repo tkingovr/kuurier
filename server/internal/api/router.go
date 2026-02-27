@@ -61,8 +61,9 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	messageHandler := messaging.NewMessageHandler(cfg, db)
 	groupHandler := messaging.NewGroupHandler(cfg, db)
 	governanceHandler := messaging.NewGovernanceHandler(cfg, db)
-	feedHandler := feed.NewHandler(cfg, db, redis)
-	newsHandler := news.NewHandler()
+	newsService := news.NewService()
+	feedHandler := feed.NewHandler(cfg, db, redis, newsService)
+	newsHandler := news.NewHandler(newsService)
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
 	alertsHandler := alerts.NewHandler(cfg, db, redis, pushService)
@@ -100,7 +101,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 			protected.GET("/vouches", authHandler.GetVouches)
 
 			// User profile routes
-			protected.GET("/users", authHandler.SearchUsers)            // Search users by ID prefix
+			protected.GET("/users", authHandler.SearchUsers)             // Search users by ID prefix
 			protected.GET("/users/:user_id", authHandler.GetUserProfile) // Get specific user profile
 
 			// Invite routes (requires trust 30+)
@@ -115,32 +116,32 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 			// Signal Protocol key management routes
 			keysRoutes := protected.Group("/keys")
 			{
-				keysRoutes.POST("/bundle", keysHandler.UploadBundle)           // Upload identity + signed pre-key + pre-keys
-				keysRoutes.GET("/bundle/:user_id", keysHandler.GetBundle)      // Fetch bundle (consumes pre-key)
-				keysRoutes.POST("/prekeys", keysHandler.UploadPreKeys)         // Replenish pre-keys
-				keysRoutes.GET("/prekey-count", keysHandler.GetPreKeyCount)    // Check remaining pre-keys
+				keysRoutes.POST("/bundle", keysHandler.UploadBundle)             // Upload identity + signed pre-key + pre-keys
+				keysRoutes.GET("/bundle/:user_id", keysHandler.GetBundle)        // Fetch bundle (consumes pre-key)
+				keysRoutes.POST("/prekeys", keysHandler.UploadPreKeys)           // Replenish pre-keys
+				keysRoutes.GET("/prekey-count", keysHandler.GetPreKeyCount)      // Check remaining pre-keys
 				keysRoutes.PUT("/signed-prekey", keysHandler.UpdateSignedPreKey) // Rotate signed pre-key
 			}
 
 			// Organization routes (messaging)
 			orgRoutes := protected.Group("/orgs")
 			{
-				orgRoutes.GET("", orgHandler.ListOrganizations)           // List user's organizations
-				orgRoutes.POST("", orgHandler.CreateOrganization)         // Create organization
-				orgRoutes.GET("/discover", orgHandler.ListPublicOrganizations) // Discover public orgs
-				orgRoutes.GET("/:id", orgHandler.GetOrganization)         // Get organization details
-				orgRoutes.PUT("/:id", orgHandler.UpdateOrganization)      // Update organization (admin)
+				orgRoutes.GET("", orgHandler.ListOrganizations)                    // List user's organizations
+				orgRoutes.POST("", orgHandler.CreateOrganization)                  // Create organization
+				orgRoutes.GET("/discover", orgHandler.ListPublicOrganizations)     // Discover public orgs
+				orgRoutes.GET("/:id", orgHandler.GetOrganization)                  // Get organization details
+				orgRoutes.PUT("/:id", orgHandler.UpdateOrganization)               // Update organization (admin)
 				orgRoutes.DELETE("/:id", governanceHandler.SafeDeleteOrganization) // Delete organization (with safeguards)
-				orgRoutes.POST("/:id/join", orgHandler.JoinOrganization)  // Join public org
-				orgRoutes.POST("/:id/leave", orgHandler.LeaveOrganization) // Leave organization
+				orgRoutes.POST("/:id/join", orgHandler.JoinOrganization)           // Join public org
+				orgRoutes.POST("/:id/leave", orgHandler.LeaveOrganization)         // Leave organization
 
 				// Governance routes
-				orgRoutes.GET("/:id/governance", governanceHandler.GetOrgGovernanceInfo)        // Get governance info
-				orgRoutes.POST("/:id/promote", governanceHandler.PromoteToAdmin)               // Promote member to admin
-				orgRoutes.DELETE("/:id/admins/:user_id", governanceHandler.DemoteFromAdmin)    // Demote admin to member
-				orgRoutes.POST("/:id/transfer", governanceHandler.RequestAdminTransfer)        // Request admin transfer
-				orgRoutes.POST("/:id/archive", governanceHandler.ArchiveOrganization)          // Archive organization
-				orgRoutes.POST("/:id/unarchive", governanceHandler.UnarchiveOrganization)      // Restore archived org
+				orgRoutes.GET("/:id/governance", governanceHandler.GetOrgGovernanceInfo)    // Get governance info
+				orgRoutes.POST("/:id/promote", governanceHandler.PromoteToAdmin)            // Promote member to admin
+				orgRoutes.DELETE("/:id/admins/:user_id", governanceHandler.DemoteFromAdmin) // Demote admin to member
+				orgRoutes.POST("/:id/transfer", governanceHandler.RequestAdminTransfer)     // Request admin transfer
+				orgRoutes.POST("/:id/archive", governanceHandler.ArchiveOrganization)       // Archive organization
+				orgRoutes.POST("/:id/unarchive", governanceHandler.UnarchiveOrganization)   // Restore archived org
 			}
 
 			// Admin transfer response (separate endpoint for recipient)
@@ -149,47 +150,48 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 			// Channel routes (messaging)
 			channelRoutes := protected.Group("/channels")
 			{
-				channelRoutes.GET("", channelHandler.ListChannels)              // List user's channels
-				channelRoutes.POST("", channelHandler.CreateChannel)            // Create channel
-				channelRoutes.POST("/dm", channelHandler.GetOrCreateDM)         // Get or create DM
-				channelRoutes.GET("/:id", channelHandler.GetChannel)            // Get channel details
-				channelRoutes.POST("/:id/members", channelHandler.AddChannelMember)     // Add member
+				channelRoutes.GET("", channelHandler.ListChannels)                                // List user's channels
+				channelRoutes.POST("", channelHandler.CreateChannel)                              // Create channel
+				channelRoutes.POST("/dm", channelHandler.GetOrCreateDM)                           // Get or create DM
+				channelRoutes.GET("/:id", channelHandler.GetChannel)                              // Get channel details
+				channelRoutes.POST("/:id/members", channelHandler.AddChannelMember)               // Add member
 				channelRoutes.DELETE("/:id/members/:user_id", channelHandler.RemoveChannelMember) // Remove member
-				channelRoutes.POST("/:id/read", channelHandler.MarkChannelRead) // Mark as read
+				channelRoutes.POST("/:id/read", channelHandler.MarkChannelRead)                   // Mark as read
 
 				// Channel governance
-				channelRoutes.POST("/:id/archive", governanceHandler.ArchiveChannel)    // Archive channel
+				channelRoutes.POST("/:id/archive", governanceHandler.ArchiveChannel)     // Archive channel
 				channelRoutes.POST("/:id/unarchive", governanceHandler.UnarchiveChannel) // Restore channel
-				channelRoutes.POST("/:id/hide", governanceHandler.HideConversation)     // Hide conversation (DM)
-				channelRoutes.POST("/:id/unhide", governanceHandler.UnhideConversation) // Unhide conversation
+				channelRoutes.POST("/:id/hide", governanceHandler.HideConversation)      // Hide conversation (DM)
+				channelRoutes.POST("/:id/unhide", governanceHandler.UnhideConversation)  // Unhide conversation
 			}
 
 			// Message routes (E2E encrypted messages)
 			messageRoutes := protected.Group("/messages")
 			{
-				messageRoutes.POST("", messageHandler.SendMessage)                    // Send encrypted message
-				messageRoutes.GET("/:channel_id", messageHandler.GetMessages)         // Get message history
-				messageRoutes.PUT("/:id", messageHandler.EditMessage)                 // Edit message
-				messageRoutes.DELETE("/:id", messageHandler.DeleteMessage)            // Delete message
-				messageRoutes.POST("/:id/react", messageHandler.AddReaction)          // Add reaction
-				messageRoutes.DELETE("/:id/react", messageHandler.RemoveReaction)     // Remove reaction
+				messageRoutes.POST("", messageHandler.SendMessage)                // Send encrypted message
+				messageRoutes.GET("/:channel_id", messageHandler.GetMessages)     // Get message history
+				messageRoutes.PUT("/:id", messageHandler.EditMessage)             // Edit message
+				messageRoutes.DELETE("/:id", messageHandler.DeleteMessage)        // Delete message
+				messageRoutes.POST("/:id/react", messageHandler.AddReaction)      // Add reaction
+				messageRoutes.DELETE("/:id/react", messageHandler.RemoveReaction) // Remove reaction
 			}
 
 			// Group encryption routes (Sender Keys)
 			groupRoutes := protected.Group("/groups")
 			{
-				groupRoutes.POST("/sender-key", groupHandler.UploadSenderKey)                    // Upload sender key
-				groupRoutes.GET("/:channel_id/sender-keys", groupHandler.GetSenderKeys)          // Get all sender keys
-				groupRoutes.GET("/:channel_id/sender-keys/:user_id", groupHandler.GetSenderKey)  // Get specific sender key
-				groupRoutes.DELETE("/:channel_id/sender-key", groupHandler.DeleteSenderKey)      // Delete own sender key
-				groupRoutes.POST("/:channel_id/rotate-keys", groupHandler.RotateChannelKeys)     // Force key rotation
-				groupRoutes.GET("/:channel_id/key-status", groupHandler.GetChannelKeyStatus)     // Check key status
+				groupRoutes.POST("/sender-key", groupHandler.UploadSenderKey)                   // Upload sender key
+				groupRoutes.GET("/:channel_id/sender-keys", groupHandler.GetSenderKeys)         // Get all sender keys
+				groupRoutes.GET("/:channel_id/sender-keys/:user_id", groupHandler.GetSenderKey) // Get specific sender key
+				groupRoutes.DELETE("/:channel_id/sender-key", groupHandler.DeleteSenderKey)     // Delete own sender key
+				groupRoutes.POST("/:channel_id/rotate-keys", groupHandler.RotateChannelKeys)    // Force key rotation
+				groupRoutes.GET("/:channel_id/key-status", groupHandler.GetChannelKeyStatus)    // Check key status
 			}
 
 			// Feed routes
 			feedRoutes := protected.Group("/feed")
 			{
 				feedRoutes.GET("", feedHandler.GetFeed)
+				feedRoutes.GET("/v2", feedHandler.GetFeedV2)
 				feedRoutes.POST("/posts", feedHandler.CreatePost)
 				feedRoutes.GET("/posts/:id", feedHandler.GetPost)
 				feedRoutes.DELETE("/posts/:id", feedHandler.DeletePost)

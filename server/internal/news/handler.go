@@ -4,9 +4,7 @@ import (
 	"encoding/xml"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,17 +12,12 @@ import (
 
 // Handler handles news-related HTTP requests
 type Handler struct {
-	cache      []NewsArticle
-	cacheMutex sync.RWMutex
-	cacheTime  time.Time
-	cacheTTL   time.Duration
+	service *Service
 }
 
 // NewHandler creates a new news handler
-func NewHandler() *Handler {
-	return &Handler{
-		cacheTTL: 15 * time.Minute, // Cache news for 15 minutes
-	}
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
 }
 
 // NewsArticle represents a news article from RSS
@@ -94,79 +87,12 @@ var newsSources = []struct {
 
 // GetNews returns cached or fresh news articles
 func (h *Handler) GetNews(c *gin.Context) {
-	// Check cache
-	h.cacheMutex.RLock()
-	if time.Since(h.cacheTime) < h.cacheTTL && len(h.cache) > 0 {
-		articles := h.cache
-		h.cacheMutex.RUnlock()
-		c.JSON(http.StatusOK, gin.H{
-			"articles": articles,
-			"cached":   true,
-		})
-		return
-	}
-	h.cacheMutex.RUnlock()
-
-	// Fetch fresh news
-	articles := h.fetchAllNews()
-
-	// Update cache
-	h.cacheMutex.Lock()
-	h.cache = articles
-	h.cacheTime = time.Now()
-	h.cacheMutex.Unlock()
+	articles, cached := h.service.GetNews()
 
 	c.JSON(http.StatusOK, gin.H{
 		"articles": articles,
-		"cached":   false,
+		"cached":   cached,
 	})
-}
-
-// fetchAllNews fetches news from all sources concurrently
-func (h *Handler) fetchAllNews() []NewsArticle {
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var allArticles []NewsArticle
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	for _, source := range newsSources {
-		wg.Add(1)
-		go func(src struct {
-			URL      string
-			Name     string
-			Icon     string
-			Category string
-		}) {
-			defer wg.Done()
-
-			articles, err := fetchRSSFeed(client, src.URL, src.Name, src.Icon, src.Category)
-			if err != nil {
-				// Log error but continue with other sources
-				return
-			}
-
-			mu.Lock()
-			allArticles = append(allArticles, articles...)
-			mu.Unlock()
-		}(source)
-	}
-
-	wg.Wait()
-
-	// Sort by publication date (newest first)
-	sort.Slice(allArticles, func(i, j int) bool {
-		return allArticles[i].PublishedAt.After(allArticles[j].PublishedAt)
-	})
-
-	// Limit to most recent 50 articles
-	if len(allArticles) > 50 {
-		allArticles = allArticles[:50]
-	}
-
-	return allArticles
 }
 
 // fetchRSSFeed fetches and parses a single RSS feed

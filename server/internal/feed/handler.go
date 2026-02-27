@@ -2,38 +2,84 @@ package feed
 
 import (
 	"context"
+	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kuurier/server/internal/config"
+	"github.com/kuurier/server/internal/news"
 	"github.com/kuurier/server/internal/storage"
 )
 
 // Handler handles feed-related endpoints
 type Handler struct {
-	cfg   *config.Config
-	db    *storage.Postgres
-	redis *storage.Redis
+	cfg         *config.Config
+	db          *storage.Postgres
+	redis       *storage.Redis
+	newsService *news.Service
 }
 
 // NewHandler creates a new feed handler
-func NewHandler(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *Handler {
-	return &Handler{cfg: cfg, db: db, redis: redis}
+func NewHandler(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, newsService *news.Service) *Handler {
+	return &Handler{cfg: cfg, db: db, redis: redis, newsService: newsService}
 }
 
 // CreatePostRequest represents a new post
 type CreatePostRequest struct {
-	Content      string    `json:"content" binding:"required,max=2000"`
-	SourceType   string    `json:"source_type" binding:"required,oneof=firsthand aggregated mainstream"`
-	Latitude     *float64  `json:"latitude"`
-	Longitude    *float64  `json:"longitude"`
-	LocationName string    `json:"location_name"`
-	Urgency      int       `json:"urgency" binding:"min=1,max=3"`
-	TopicIDs     []string  `json:"topic_ids"`
-	ExpiresAt    *int64    `json:"expires_at"` // Unix timestamp
+	Content      string   `json:"content" binding:"required,max=2000"`
+	SourceType   string   `json:"source_type" binding:"required,oneof=firsthand aggregated mainstream"`
+	Latitude     *float64 `json:"latitude"`
+	Longitude    *float64 `json:"longitude"`
+	LocationName string   `json:"location_name"`
+	Urgency      int      `json:"urgency" binding:"min=1,max=3"`
+	TopicIDs     []string `json:"topic_ids"`
+	ExpiresAt    *int64   `json:"expires_at"` // Unix timestamp
+}
+
+// FeedType represents the type of feed requested.
+type FeedType string
+
+const (
+	FeedTypeForYou    FeedType = "for_you"
+	FeedTypeFollowing FeedType = "following"
+	FeedTypeLocal     FeedType = "local"
+	FeedTypeCrisis    FeedType = "crisis"
+	FeedTypeNews      FeedType = "news"
+)
+
+type feedSubscription struct {
+	topicID      *string
+	latitude     *float64
+	longitude    *float64
+	radiusMeters *int
+	minUrgency   int
+}
+
+type postCandidate struct {
+	id                string
+	authorID          string
+	content           string
+	sourceType        string
+	latitude          *float64
+	longitude         *float64
+	locationName      *string
+	urgency           int
+	createdAt         time.Time
+	verificationScore int
+	authorTrustScore  int
+	topicIDs          []string
+}
+
+type scoredFeedItem struct {
+	score    float64
+	itemType string
+	post     *postCandidate
+	article  *news.NewsArticle
+	why      []string
 }
 
 // GetFeed returns the user's personalized feed
@@ -121,6 +167,88 @@ func (h *Handler) GetFeed(c *gin.Context) {
 		"posts":  posts,
 		"limit":  limit,
 		"offset": offset,
+	})
+}
+
+// GetFeedV2 returns the ranked, multi-source feed with optional personalization.
+func (h *Handler) GetFeedV2(c *gin.Context) {
+	userID := c.GetString("user_id")
+	ctx := c.Request.Context()
+
+	feedType := FeedType(c.DefaultQuery("type", string(FeedTypeForYou)))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit > 100 {
+		limit = 100
+	}
+
+	var lat *float64
+	var lon *float64
+	if q := c.Query("lat"); q != "" {
+		if v, err := strconv.ParseFloat(q, 64); err == nil {
+			lat = &v
+		}
+	}
+	if q := c.Query("lon"); q != "" {
+		if v, err := strconv.ParseFloat(q, 64); err == nil {
+			lon = &v
+		}
+	}
+
+	radiusMeters, _ := strconv.Atoi(c.DefaultQuery("radius_m", "50000"))
+	if radiusMeters > 200000 {
+		radiusMeters = 200000
+	}
+	minUrgency, _ := strconv.Atoi(c.DefaultQuery("min_urgency", "0"))
+
+	if feedType == FeedTypeNews {
+		h.respondWithNewsFeed(c, limit, offset)
+		return
+	}
+
+	subscriptions, topicNames, err := h.getUserSubscriptions(ctx, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load subscriptions"})
+		return
+	}
+
+	candidates, err := h.fetchFeedCandidates(ctx, 1200)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch candidates"})
+		return
+	}
+
+	scoredItems := h.rankFeedCandidates(feedType, candidates, subscriptions, topicNames, lat, lon, radiusMeters, minUrgency)
+
+	// Optionally mix in news for "for_you"
+	if feedType == FeedTypeForYou && h.newsService != nil {
+		articles, _ := h.newsService.GetNews()
+		scoredItems = h.mixNewsItems(scoredItems, articles)
+	}
+
+	items := h.buildFeedResponseItems(ctx, scoredItems)
+
+	// Apply pagination
+	start := offset
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + limit
+	if end > len(items) {
+		end = len(items)
+	}
+
+	paged := items[start:end]
+	nextOffset := offset + len(paged)
+	if nextOffset >= len(items) {
+		nextOffset = -1
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items":       paged,
+		"limit":       limit,
+		"offset":      offset,
+		"next_offset": nextOffset,
 	})
 }
 
@@ -552,4 +680,434 @@ func (h *Handler) getPostMedia(ctx context.Context, postID string) []gin.H {
 	}
 
 	return media
+}
+
+func (h *Handler) respondWithNewsFeed(c *gin.Context, limit, offset int) {
+	if h.newsService == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"items":       []gin.H{},
+			"limit":       limit,
+			"offset":      offset,
+			"next_offset": -1,
+		})
+		return
+	}
+
+	articles, _ := h.newsService.GetNews()
+	scored := make([]scoredFeedItem, 0, len(articles))
+	for _, article := range articles {
+		why := []string{"News", "Category: " + article.Category}
+		score := recencyScore(article.PublishedAt)
+		scored = append(scored, scoredFeedItem{
+			score:    score,
+			itemType: "news",
+			article:  &article,
+			why:      why,
+		})
+	}
+
+	sort.Slice(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
+	items := h.buildFeedResponseItems(c.Request.Context(), scored)
+
+	start := offset
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	paged := items[start:end]
+	nextOffset := offset + len(paged)
+	if nextOffset >= len(items) {
+		nextOffset = -1
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items":       paged,
+		"limit":       limit,
+		"offset":      offset,
+		"next_offset": nextOffset,
+	})
+}
+
+func (h *Handler) getUserSubscriptions(ctx context.Context, userID string) ([]feedSubscription, map[string]string, error) {
+	rows, err := h.db.Pool().Query(ctx, `
+		SELECT s.topic_id,
+			   ST_Y(s.location::geometry) as lat,
+			   ST_X(s.location::geometry) as lon,
+			   s.radius_meters,
+			   s.min_urgency
+		FROM subscriptions s
+		WHERE s.user_id = $1 AND s.is_active = true
+	`, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	var subs []feedSubscription
+	for rows.Next() {
+		var topicID *string
+		var lat, lon *float64
+		var radius *int
+		var minUrgency int
+		if err := rows.Scan(&topicID, &lat, &lon, &radius, &minUrgency); err != nil {
+			continue
+		}
+		subs = append(subs, feedSubscription{
+			topicID:      topicID,
+			latitude:     lat,
+			longitude:    lon,
+			radiusMeters: radius,
+			minUrgency:   minUrgency,
+		})
+	}
+
+	topicRows, err := h.db.Pool().Query(ctx, `SELECT id, name FROM topics`)
+	if err != nil {
+		return subs, nil, err
+	}
+	defer topicRows.Close()
+
+	topicNames := make(map[string]string)
+	for topicRows.Next() {
+		var id, name string
+		if err := topicRows.Scan(&id, &name); err == nil {
+			topicNames[id] = name
+		}
+	}
+
+	return subs, topicNames, nil
+}
+
+func (h *Handler) fetchFeedCandidates(ctx context.Context, limit int) ([]postCandidate, error) {
+	rows, err := h.db.Pool().Query(ctx, `
+		SELECT p.id, p.author_id, p.content, p.source_type,
+			   ST_Y(p.location::geometry) as lat,
+			   ST_X(p.location::geometry) as lon,
+			   p.location_name, p.urgency, p.created_at, p.verification_score,
+			   u.trust_score,
+			   ARRAY_REMOVE(ARRAY_AGG(DISTINCT pt.topic_id::text), NULL) AS topic_ids
+		FROM posts p
+		JOIN users u ON u.id = p.author_id
+		LEFT JOIN post_topics pt ON pt.post_id = p.id
+		WHERE p.is_flagged = false
+		  AND (p.expires_at IS NULL OR p.expires_at > NOW())
+		  AND p.created_at > NOW() - INTERVAL '14 days'
+		GROUP BY p.id, p.author_id, p.content, p.source_type, p.location, p.location_name,
+				 p.urgency, p.created_at, p.verification_score, u.trust_score
+		ORDER BY p.created_at DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var posts []postCandidate
+	for rows.Next() {
+		var post postCandidate
+		var topicIDs []string
+		if err := rows.Scan(
+			&post.id,
+			&post.authorID,
+			&post.content,
+			&post.sourceType,
+			&post.latitude,
+			&post.longitude,
+			&post.locationName,
+			&post.urgency,
+			&post.createdAt,
+			&post.verificationScore,
+			&post.authorTrustScore,
+			&topicIDs,
+		); err != nil {
+			continue
+		}
+		post.topicIDs = topicIDs
+		posts = append(posts, post)
+	}
+
+	return posts, nil
+}
+
+func (h *Handler) rankFeedCandidates(
+	feedType FeedType,
+	candidates []postCandidate,
+	subscriptions []feedSubscription,
+	topicNames map[string]string,
+	userLat, userLon *float64,
+	radiusMeters int,
+	minUrgency int,
+) []scoredFeedItem {
+	subscriptionTopics := make(map[string]int)
+	var locationSubs []feedSubscription
+	for _, sub := range subscriptions {
+		if sub.topicID != nil {
+			subscriptionTopics[*sub.topicID] = sub.minUrgency
+		}
+		if sub.latitude != nil && sub.longitude != nil {
+			locationSubs = append(locationSubs, sub)
+		}
+	}
+
+	scored := make([]scoredFeedItem, 0, len(candidates))
+	for _, post := range candidates {
+		if minUrgency > 0 && post.urgency < minUrgency {
+			continue
+		}
+
+		topicMatch, matchedTopic := postMatchesTopics(post.topicIDs, subscriptionTopics, post.urgency)
+		locationMatch := postMatchesLocation(post, locationSubs)
+
+		distance := -1.0
+		if userLat != nil && userLon != nil && post.latitude != nil && post.longitude != nil {
+			distance = distanceMeters(*userLat, *userLon, *post.latitude, *post.longitude)
+		}
+
+		switch feedType {
+		case FeedTypeFollowing:
+			if !topicMatch && !locationMatch {
+				continue
+			}
+		case FeedTypeLocal:
+			if userLat != nil && userLon != nil && distance >= 0 {
+				if distance > float64(radiusMeters) {
+					continue
+				}
+			} else if !locationMatch {
+				continue
+			}
+		case FeedTypeCrisis:
+			if post.urgency < 2 || time.Since(post.createdAt) > 72*time.Hour {
+				continue
+			}
+			if distance > 1000_000 && post.urgency < 3 {
+				continue
+			}
+		}
+
+		recency := recencyScore(post.createdAt)
+		interest := 0.0
+		if topicMatch {
+			interest = 1.0
+		}
+		proximity := 0.0
+		if distance >= 0 && radiusMeters > 0 {
+			proximity = 1.0 - math.Min(distance/float64(radiusMeters), 1.0)
+		}
+		urgency := (float64(post.urgency) - 1.0) / 2.0
+		trust := confidenceScore(post)
+		negative := 0.0
+		if post.verificationScore < 0 {
+			negative = math.Min(float64(-post.verificationScore)/10.0, 1.0)
+		}
+
+		score := 0.0
+		switch feedType {
+		case FeedTypeCrisis:
+			score = 0.45*urgency + 0.35*recency + 0.20*trust
+		case FeedTypeLocal:
+			score = 0.40*proximity + 0.25*recency + 0.20*urgency + 0.15*trust
+		case FeedTypeFollowing:
+			score = 0.40*recency + 0.30*interest + 0.15*urgency + 0.15*trust
+		default:
+			score = 0.30*recency + 0.25*interest + 0.20*proximity + 0.15*urgency + 0.10*trust - 0.10*negative
+		}
+
+		why := buildWhyList(feedType, topicMatch, matchedTopic, topicNames, proximity, urgency, trust)
+
+		scored = append(scored, scoredFeedItem{
+			score:    score,
+			itemType: "post",
+			post:     &post,
+			why:      why,
+		})
+	}
+
+	sort.Slice(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
+
+	// Basic author diversity: avoid long streaks by the same author.
+	var diversified []scoredFeedItem
+	var lastAuthor string
+	streak := 0
+	for _, item := range scored {
+		if item.post == nil {
+			diversified = append(diversified, item)
+			continue
+		}
+		if item.post.authorID == lastAuthor {
+			if streak >= 2 {
+				continue
+			}
+			streak++
+		} else {
+			lastAuthor = item.post.authorID
+			streak = 1
+		}
+		diversified = append(diversified, item)
+	}
+
+	return diversified
+}
+
+func (h *Handler) mixNewsItems(items []scoredFeedItem, articles []news.NewsArticle) []scoredFeedItem {
+	limit := 5
+	if len(articles) < limit {
+		limit = len(articles)
+	}
+	for i := 0; i < limit; i++ {
+		article := articles[i]
+		why := []string{"News", "Category: " + article.Category}
+		items = append(items, scoredFeedItem{
+			score:    recencyScore(article.PublishedAt),
+			itemType: "news",
+			article:  &article,
+			why:      why,
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool { return items[i].score > items[j].score })
+	return items
+}
+
+func (h *Handler) buildFeedResponseItems(ctx context.Context, items []scoredFeedItem) []gin.H {
+	result := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		switch item.itemType {
+		case "news":
+			if item.article == nil {
+				continue
+			}
+			result = append(result, gin.H{
+				"id":      item.article.ID,
+				"type":    "news",
+				"article": item.article,
+				"why":     item.why,
+			})
+		default:
+			if item.post == nil {
+				continue
+			}
+			post := item.post
+			postJSON := gin.H{
+				"id":                 post.id,
+				"author_id":          post.authorID,
+				"content":            post.content,
+				"source_type":        post.sourceType,
+				"urgency":            post.urgency,
+				"created_at":         post.createdAt,
+				"verification_score": post.verificationScore,
+			}
+
+			if post.latitude != nil && post.longitude != nil {
+				postJSON["location"] = gin.H{"latitude": *post.latitude, "longitude": *post.longitude}
+			}
+			if post.locationName != nil {
+				postJSON["location_name"] = *post.locationName
+			}
+
+			media := h.getPostMedia(ctx, post.id)
+			if len(media) > 0 {
+				postJSON["media"] = media
+			}
+
+			result = append(result, gin.H{
+				"id":   "post-" + post.id,
+				"type": "post",
+				"post": postJSON,
+				"why":  item.why,
+			})
+		}
+	}
+	return result
+}
+
+func recencyScore(createdAt time.Time) float64 {
+	ageHours := time.Since(createdAt).Hours()
+	halfLife := 8.0
+	return math.Exp(-math.Ln2 * ageHours / halfLife)
+}
+
+func confidenceScore(post postCandidate) float64 {
+	trustNorm := math.Min(float64(post.authorTrustScore)/100.0, 1.0)
+	verificationNorm := (math.Min(math.Max(float64(post.verificationScore), -5.0), 10.0) + 5.0) / 15.0
+	sourceWeight := 0.6
+	switch post.sourceType {
+	case "firsthand":
+		sourceWeight = 1.0
+	case "aggregated":
+		sourceWeight = 0.7
+	case "mainstream":
+		sourceWeight = 0.6
+	}
+	return 0.5*trustNorm + 0.3*verificationNorm + 0.2*sourceWeight
+}
+
+func distanceMeters(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadius = 6371000.0
+	lat1Rad := lat1 * math.Pi / 180.0
+	lat2Rad := lat2 * math.Pi / 180.0
+	deltaLat := (lat2 - lat1) * math.Pi / 180.0
+	deltaLon := (lon2 - lon1) * math.Pi / 180.0
+
+	a := math.Sin(deltaLat/2)*math.Sin(deltaLat/2) +
+		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
+			math.Sin(deltaLon/2)*math.Sin(deltaLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return earthRadius * c
+}
+
+func postMatchesTopics(postTopicIDs []string, subTopics map[string]int, urgency int) (bool, *string) {
+	for _, topicID := range postTopicIDs {
+		if minUrgency, ok := subTopics[topicID]; ok && urgency >= minUrgency {
+			return true, &topicID
+		}
+	}
+	return false, nil
+}
+
+func postMatchesLocation(post postCandidate, subs []feedSubscription) bool {
+	if post.latitude == nil || post.longitude == nil {
+		return false
+	}
+	for _, sub := range subs {
+		if sub.latitude == nil || sub.longitude == nil || sub.radiusMeters == nil {
+			continue
+		}
+		distance := distanceMeters(*sub.latitude, *sub.longitude, *post.latitude, *post.longitude)
+		if distance <= float64(*sub.radiusMeters) && post.urgency >= sub.minUrgency {
+			return true
+		}
+	}
+	return false
+}
+
+func buildWhyList(feedType FeedType, topicMatch bool, matchedTopic *string, topicNames map[string]string, proximity, urgency, trust float64) []string {
+	var why []string
+
+	if feedType == FeedTypeCrisis {
+		why = append(why, "Crisis alert")
+	}
+
+	if topicMatch && matchedTopic != nil {
+		if name, ok := topicNames[*matchedTopic]; ok {
+			why = append(why, "Topic: "+name)
+		}
+	}
+	if proximity >= 0.6 {
+		why = append(why, "Near you")
+	}
+	if urgency >= 0.8 {
+		why = append(why, "High urgency")
+	}
+	if trust >= 0.7 {
+		why = append(why, "Trusted source")
+	}
+
+	if len(why) > 3 {
+		why = why[:3]
+	}
+	return why
 }

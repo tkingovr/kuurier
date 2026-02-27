@@ -109,8 +109,10 @@ struct DiscoverView: View {
 struct FeedContentView: View {
     @EnvironmentObject var authService: AuthService
     @StateObject private var feedService = FeedService.shared
+    @StateObject private var locationManager = LocationManager()
     @State private var showComposeSheet = false
     @State private var showLockedAlert = false
+    @State private var selectedFeedType: FeedType = .forYou
 
     private var canPost: Bool {
         guard let user = authService.currentUser else { return false }
@@ -118,31 +120,82 @@ struct FeedContentView: View {
     }
 
     var body: some View {
-        Group {
-            if feedService.posts.isEmpty && !feedService.isLoading {
-                ContentUnavailableView(
-                    "No posts yet",
-                    systemImage: "newspaper",
-                    description: Text("Be the first to share what's happening")
-                )
-            } else {
-                List {
-                    ForEach(feedService.posts) { post in
-                        PostRowView(post: post)
-                    }
-
-                    if feedService.isLoading {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
-                        }
-                        .listRowBackground(Color.clear)
-                    }
+        VStack(spacing: 0) {
+            Picker("Feed", selection: $selectedFeedType) {
+                ForEach(FeedType.allCases, id: \.self) { type in
+                    Text(type.title).tag(type)
                 }
-                .listStyle(.plain)
-                .refreshable {
-                    await feedService.fetchFeed()
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            Group {
+                if feedService.items.isEmpty && !feedService.isLoading {
+                    ContentUnavailableView(
+                        "No posts yet",
+                        systemImage: "newspaper",
+                        description: Text("Be the first to share what's happening")
+                    )
+                } else {
+                    List {
+                        ForEach(feedService.items) { item in
+                            switch item.type {
+                            case "post":
+                                if let post = item.post {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        PostRowView(post: post)
+                                        if let why = item.why, !why.isEmpty {
+                                            FeedWhyChipsView(reasons: why)
+                                        }
+                                    }
+                                }
+                            case "news":
+                                if let article = item.article {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        NewsCardView(article: article)
+                                        if let why = item.why, !why.isEmpty {
+                                            FeedWhyChipsView(reasons: why)
+                                        }
+                                    }
+                                }
+                            default:
+                                EmptyView()
+                            }
+                        }
+
+                        if feedService.isLoading || feedService.isLoadingMore {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                Spacer()
+                            }
+                            .listRowBackground(Color.clear)
+                        } else if feedService.hasMoreItems {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .onAppear {
+                                        Task {
+                                            await feedService.loadMoreItems(
+                                                type: selectedFeedType,
+                                                location: locationManager.location
+                                            )
+                                        }
+                                    }
+                                Spacer()
+                            }
+                            .listRowBackground(Color.clear)
+                        }
+                    }
+                    .listStyle(.plain)
+                    .refreshable {
+                        await feedService.fetchFeedV2(
+                            type: selectedFeedType,
+                            refresh: true,
+                            location: locationManager.location
+                        )
+                    }
                 }
             }
         }
@@ -150,7 +203,13 @@ struct FeedContentView: View {
             ComposePostView()
         }
         .task {
-            await feedService.fetchFeed()
+            locationManager.requestPermission()
+            await feedService.fetchFeedV2(type: selectedFeedType, refresh: true, location: locationManager.location)
+        }
+        .onChange(of: selectedFeedType) { _, _ in
+            Task {
+                await feedService.fetchFeedV2(type: selectedFeedType, refresh: true, location: locationManager.location)
+            }
         }
     }
 }
@@ -793,6 +852,27 @@ struct PostRowView: View {
         case 2: return .yellow
         case 3: return .red
         default: return .gray
+        }
+    }
+}
+
+// MARK: - Feed Why Chips View
+
+struct FeedWhyChipsView: View {
+    let reasons: [String]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(reasons.prefix(3), id: \.self) { reason in
+                Text(reason)
+                    .font(.caption2)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.12))
+                    .foregroundColor(.secondary)
+                    .cornerRadius(10)
+            }
+            Spacer()
         }
     }
 }

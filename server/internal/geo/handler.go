@@ -42,26 +42,55 @@ func (h *Handler) GetHeatmap(c *gin.Context) {
 
 	// Query aggregated post counts per grid cell
 	rows, err := h.db.Pool().Query(ctx, `
-		WITH grid AS (
+		WITH scored AS (
 			SELECT
-				FLOOR(ST_Y(location::geometry) / $5) * $5 as lat_cell,
-				FLOOR(ST_X(location::geometry) / $5) * $5 as lon_cell,
-				COUNT(*) as post_count,
-				MAX(urgency) as max_urgency,
-				MAX(created_at) as latest_activity
-			FROM posts
-			WHERE location IS NOT NULL
-			  AND is_flagged = false
-			  AND (expires_at IS NULL OR expires_at > NOW())
-			  AND ST_Y(location::geometry) BETWEEN $1 AND $2
-			  AND ST_X(location::geometry) BETWEEN $3 AND $4
-			  AND created_at > NOW() - INTERVAL '7 days'
-			GROUP BY lat_cell, lon_cell
+				FLOOR(ST_Y(p.location::geometry) / $5) * $5 as lat_cell,
+				FLOOR(ST_X(p.location::geometry) / $5) * $5 as lon_cell,
+				p.urgency,
+				p.created_at,
+				p.verification_score,
+				u.trust_score,
+				p.source_type
+			FROM posts p
+			JOIN users u ON u.id = p.author_id
+			WHERE p.location IS NOT NULL
+			  AND p.is_flagged = false
+			  AND (p.expires_at IS NULL OR p.expires_at > NOW())
+			  AND ST_Y(p.location::geometry) BETWEEN $1 AND $2
+			  AND ST_X(p.location::geometry) BETWEEN $3 AND $4
+			  AND p.created_at > NOW() - INTERVAL '7 days'
+		),
+		weighted AS (
+			SELECT
+				lat_cell,
+				lon_cell,
+				urgency,
+				EXP(-LN(2) * (EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600.0) / 8.0) as recency,
+				(0.5 * LEAST(trust_score, 100) / 100.0) +
+				(0.3 * ((LEAST(GREATEST(verification_score, -5), 10) + 5) / 15.0)) +
+				(0.2 * CASE source_type
+					WHEN 'firsthand' THEN 1.0
+					WHEN 'aggregated' THEN 0.7
+					ELSE 0.6
+				END) as confidence
+			FROM scored
 		)
-		SELECT lat_cell, lon_cell, post_count, max_urgency
-		FROM grid
-		WHERE post_count > 0
-		ORDER BY post_count DESC
+		SELECT
+			lat_cell,
+			lon_cell,
+			CEIL(SUM(urgency * recency * confidence))::int as weighted_count,
+			MAX(
+				CASE
+					WHEN confidence >= 0.7 THEN urgency
+					WHEN confidence >= 0.5 THEN LEAST(urgency, 2)
+					WHEN confidence >= 0.35 THEN LEAST(urgency, 1)
+					ELSE 1
+				END
+			) as max_urgency
+		FROM weighted
+		GROUP BY lat_cell, lon_cell
+		HAVING SUM(urgency * recency * confidence) > 0.1
+		ORDER BY weighted_count DESC
 		LIMIT 500
 	`, minLat, maxLat, minLon, maxLon, gridSize)
 

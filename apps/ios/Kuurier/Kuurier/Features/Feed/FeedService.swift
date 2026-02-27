@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CoreLocation
 
 /// Service for fetching and managing feed posts
 final class FeedService: ObservableObject {
@@ -7,14 +8,17 @@ final class FeedService: ObservableObject {
     static let shared = FeedService()
 
     @Published var posts: [Post] = []
+    @Published var items: [FeedV2Item] = []
     @Published var isLoading = false
     @Published var isLoadingMore = false
     @Published var isCreatingPost = false
     @Published var error: String?
     @Published var hasMorePosts = true
+    @Published var hasMoreItems = true
 
     private let api = APIClient.shared
     private var currentOffset = 0
+    private var currentOffsetV2 = 0
     private let pageSize = 30
 
     private init() {}
@@ -47,6 +51,91 @@ final class FeedService: ObservableObject {
         } catch {
             self.error = error.localizedDescription
             isLoading = false
+        }
+    }
+
+    // MARK: - Fetch Feed V2
+
+    /// Fetches the ranked multi-source feed (v2)
+    @MainActor
+    func fetchFeedV2(type: FeedType, refresh: Bool = false, location: CLLocation? = nil, radiusMeters: Int? = nil, minUrgency: Int? = nil) async {
+        if refresh {
+            currentOffsetV2 = 0
+            hasMoreItems = true
+        }
+
+        guard !isLoading else { return }
+
+        isLoading = true
+        error = nil
+
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "type", value: type.rawValue),
+            URLQueryItem(name: "limit", value: String(pageSize)),
+            URLQueryItem(name: "offset", value: String(currentOffsetV2))
+        ]
+
+        if let location = location {
+            queryItems.append(URLQueryItem(name: "lat", value: String(location.coordinate.latitude)))
+            queryItems.append(URLQueryItem(name: "lon", value: String(location.coordinate.longitude)))
+        }
+        if let radiusMeters = radiusMeters {
+            queryItems.append(URLQueryItem(name: "radius_m", value: String(radiusMeters)))
+        }
+        if let minUrgency = minUrgency {
+            queryItems.append(URLQueryItem(name: "min_urgency", value: String(minUrgency)))
+        }
+
+        do {
+            let response: FeedV2Response = try await api.get("/feed/v2", queryItems: queryItems)
+
+            if refresh {
+                items = response.items
+            } else {
+                items.append(contentsOf: response.items)
+            }
+
+            currentOffsetV2 += response.items.count
+            hasMoreItems = response.items.count >= pageSize
+            isLoading = false
+        } catch {
+            self.error = error.localizedDescription
+            isLoading = false
+        }
+    }
+
+    /// Loads more items for the v2 feed
+    @MainActor
+    func loadMoreItems(type: FeedType, location: CLLocation? = nil, radiusMeters: Int? = nil, minUrgency: Int? = nil) async {
+        guard !isLoadingMore && hasMoreItems else { return }
+
+        isLoadingMore = true
+
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "type", value: type.rawValue),
+            URLQueryItem(name: "limit", value: String(pageSize)),
+            URLQueryItem(name: "offset", value: String(currentOffsetV2))
+        ]
+
+        if let location = location {
+            queryItems.append(URLQueryItem(name: "lat", value: String(location.coordinate.latitude)))
+            queryItems.append(URLQueryItem(name: "lon", value: String(location.coordinate.longitude)))
+        }
+        if let radiusMeters = radiusMeters {
+            queryItems.append(URLQueryItem(name: "radius_m", value: String(radiusMeters)))
+        }
+        if let minUrgency = minUrgency {
+            queryItems.append(URLQueryItem(name: "min_urgency", value: String(minUrgency)))
+        }
+
+        do {
+            let response: FeedV2Response = try await api.get("/feed/v2", queryItems: queryItems)
+            items.append(contentsOf: response.items)
+            currentOffsetV2 += response.items.count
+            hasMoreItems = response.items.count >= pageSize
+            isLoadingMore = false
+        } catch {
+            isLoadingMore = false
         }
     }
 
@@ -191,6 +280,26 @@ final class FeedService: ObservableObject {
             return true
         } catch {
             return false
+        }
+    }
+}
+
+// MARK: - Feed Type
+
+enum FeedType: String, CaseIterable {
+    case forYou = "for_you"
+    case following = "following"
+    case local = "local"
+    case crisis = "crisis"
+    case news = "news"
+
+    var title: String {
+        switch self {
+        case .forYou: return "For You"
+        case .following: return "Following"
+        case .local: return "Local"
+        case .crisis: return "Crisis"
+        case .news: return "News"
         }
     }
 }
