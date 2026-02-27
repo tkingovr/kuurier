@@ -8,6 +8,7 @@ import {
 	signChallenge,
 	authRegister,
 	authVerify,
+	toBase64,
 	toBase64Url
 } from '$lib/api';
 
@@ -43,14 +44,14 @@ export async function initAuth(): Promise<boolean> {
 
 export async function register(inviteCode: string): Promise<void> {
 	const { publicKey, privateKey } = await generateEd25519Keypair();
-	const publicKeyBase64 = toBase64Url(publicKey);
+	const publicKeyBase64 = toBase64(publicKey);
 
 	// Store private key in sessionStorage (web app limitation - less secure than OS keychain)
 	sessionStorage.setItem('kuurier_private_key', toBase64Url(privateKey));
 
 	const { user_id, challenge } = await authRegister(publicKeyBase64, inviteCode);
 	const signature = await signChallenge(privateKey, challenge);
-	const signatureBase64 = toBase64Url(signature);
+	const signatureBase64 = toBase64(signature);
 
 	const result = await authVerify(user_id, challenge, signatureBase64);
 	setToken(result.token);

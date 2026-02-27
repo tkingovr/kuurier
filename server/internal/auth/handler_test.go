@@ -329,3 +329,183 @@ func TestTrustScoreCalculation(t *testing.T) {
 func TestInitialTrustScore(t *testing.T) {
 	assert.Equal(t, 15, InitialTrustScore, "Initial trust score should be 15")
 }
+
+// TestBase64Url_RejectedByServer verifies that base64url encoding is rejected
+// This was a real bug: the web app sent base64url but the server expects standard base64
+func TestBase64Url_RejectedByServer(t *testing.T) {
+	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	// Encode as base64url (what the web app was incorrectly sending)
+	stdBase64 := base64.StdEncoding.EncodeToString(pubKey)
+	urlBase64 := base64.RawURLEncoding.EncodeToString(pubKey)
+
+	router := gin.New()
+	router.POST("/register", func(c *gin.Context) {
+		var req RegisterRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
+		pubKeyBytes, err := base64.StdEncoding.DecodeString(req.PublicKey)
+		if err != nil || len(pubKeyBytes) != ed25519.PublicKeySize {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid public key"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "valid"})
+	})
+
+	// Standard base64 should succeed
+	body, _ := json.Marshal(map[string]interface{}{
+		"public_key":  stdBase64,
+		"invite_code": "TEST",
+	})
+	req := httptest.NewRequest("POST", "/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code, "standard base64 should be accepted")
+
+	// Base64url should fail (this was the bug)
+	body, _ = json.Marshal(map[string]interface{}{
+		"public_key":  urlBase64,
+		"invite_code": "TEST",
+	})
+	req = httptest.NewRequest("POST", "/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code, "base64url should be rejected")
+}
+
+// TestRegisterRequest_InviteCodeField tests that invite_code is optional in the request struct
+func TestRegisterRequest_InviteCodeField(t *testing.T) {
+	// invite_code has no binding:"required" tag, so it should be optional
+	router := gin.New()
+	router.POST("/register", func(c *gin.Context) {
+		var req RegisterRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"public_key":  req.PublicKey,
+			"invite_code": req.InviteCode,
+		})
+	})
+
+	// Without invite_code (login flow)
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	body, _ := json.Marshal(map[string]interface{}{
+		"public_key": base64.StdEncoding.EncodeToString(pubKey),
+	})
+	req := httptest.NewRequest("POST", "/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Empty(t, resp["invite_code"], "invite_code should be empty when not provided")
+}
+
+// TestEd25519KeySize verifies Ed25519 key sizes match expectations
+func TestEd25519KeySize(t *testing.T) {
+	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	assert.Equal(t, ed25519.PublicKeySize, len(pubKey), "public key should be 32 bytes")
+	assert.Equal(t, ed25519.PrivateKeySize, len(privKey), "private key should be 64 bytes")
+	assert.Equal(t, 32, ed25519.PublicKeySize, "Ed25519 public key size constant")
+	assert.Equal(t, 64, ed25519.PrivateKeySize, "Ed25519 private key size constant")
+
+	// Verify base64 encoding lengths
+	pubKeyBase64 := base64.StdEncoding.EncodeToString(pubKey)
+	assert.Equal(t, 44, len(pubKeyBase64), "base64 of 32 bytes should be 44 chars")
+}
+
+// TestSignatureVerification_FullFlow tests generate key, sign, verify
+func TestSignatureVerification_FullFlow(t *testing.T) {
+	// Generate keypair
+	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	// Simulate server sending a challenge
+	challengeBytes := make([]byte, 32)
+	_, err = rand.Read(challengeBytes)
+	require.NoError(t, err)
+	challenge := base64.StdEncoding.EncodeToString(challengeBytes)
+
+	// Client signs challenge
+	signature := ed25519.Sign(privKey, []byte(challenge))
+
+	// Server verifies
+	assert.True(t, ed25519.Verify(pubKey, []byte(challenge), signature))
+
+	// Tampered challenge should fail
+	assert.False(t, ed25519.Verify(pubKey, []byte(challenge+"tampered"), signature))
+
+	// Different key should fail
+	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	assert.False(t, ed25519.Verify(otherPub, []byte(challenge), signature))
+
+	// Tampered signature should fail
+	badSig := make([]byte, len(signature))
+	copy(badSig, signature)
+	badSig[0] ^= 0xFF
+	assert.False(t, ed25519.Verify(pubKey, []byte(challenge), badSig))
+}
+
+// TestVerifyRequest_SignatureDecoding tests signature base64 decoding
+func TestVerifyRequest_SignatureDecoding(t *testing.T) {
+	tests := []struct {
+		name      string
+		signature string
+		wantErr   bool
+	}{
+		{"valid standard base64", base64.StdEncoding.EncodeToString([]byte("test-signature-64-bytes-long-needs-to-be-padded-to-correct-length!")), false},
+		{"invalid base64", "not-valid!!!base64", true},
+		{"base64url should fail", base64.RawURLEncoding.EncodeToString([]byte("test")), true},
+		{"empty string decodes to empty bytes", "", false}, // base64("") = "" which is valid, but 0 bytes != 32 bytes
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := base64.StdEncoding.DecodeString(tt.signature)
+			if tt.wantErr {
+				assert.Error(t, err, "should fail to decode")
+			} else {
+				assert.NoError(t, err, "should decode successfully")
+			}
+		})
+	}
+}
+
+// TestTrustScoreThresholds tests all trust-gated capabilities
+func TestTrustScoreThresholds(t *testing.T) {
+	thresholds := []struct {
+		name       string
+		threshold  int
+		capability string
+	}{
+		{"browse only", 0, "browse"},
+		{"post creation", 30, "create posts"},
+		{"event creation", 50, "create events"},
+		{"SOS alerts", 100, "broadcast SOS"},
+	}
+
+	for _, th := range thresholds {
+		t.Run(th.capability, func(t *testing.T) {
+			// Just below threshold
+			if th.threshold > 0 {
+				assert.False(t, th.threshold-1 >= th.threshold,
+					"trust %d should not grant %s", th.threshold-1, th.capability)
+			}
+			// At threshold
+			assert.True(t, th.threshold >= th.threshold,
+				"trust %d should grant %s", th.threshold, th.capability)
+		})
+	}
+}

@@ -247,12 +247,16 @@ export async function signChallenge(
 
 // ========== Base64 Helpers ==========
 
-export function toBase64Url(bytes: Uint8Array): string {
+export function toBase64(bytes: Uint8Array): string {
 	let binary = '';
 	for (const byte of bytes) {
 		binary += String.fromCharCode(byte);
 	}
-	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+	return btoa(binary);
+}
+
+export function toBase64Url(bytes: Uint8Array): string {
+	return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 export function fromBase64Url(str: string): Uint8Array {

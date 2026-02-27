@@ -2,7 +2,7 @@
 
 **The Activist OS.**
 
-Kuurier is a secure, privacy-first platform for activists to organize, communicate, and stay informed. Built with end-to-end encryption and anonymous authentication by design.
+Kuurier is an activist operating system — a secure platform to organize, communicate, and stay informed. Built with end-to-end encryption and anonymous authentication by design.
 
 No email. No phone number. No tracking. Just cryptographic keys.
 
