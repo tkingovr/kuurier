@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kuurier — Privacy-First Activist Platform</title>
+    <title>Kuurier — The Activist OS</title>
     <meta name="description" content="Secure communication for activists. End-to-end encrypted messaging, Tor routing, and identity without personal data.">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%234ade80'/><text x='50' y='68' font-size='60' font-weight='bold' text-anchor='middle' fill='%230a0a0a'>K</text></svg>">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23f97316'/><text x='50' y='68' font-size='60' font-weight='bold' text-anchor='middle' fill='%230a0a0a'>K</text></svg>">
     <style>
         :root {
             --bg: #0a0a0a;
@@ -14,8 +14,8 @@
             --border: #2a2a2a;
             --text: #e8e8e8;
             --text-dim: #888;
-            --accent: #4ade80;
-            --accent-dim: #22c55e;
+            --accent: #f97316;
+            --accent-dim: #ea580c;
             --danger: #ef4444;
             --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
             --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -93,10 +93,10 @@
         .hero-badge {
             display: inline-block;
             padding: 4px 14px; border-radius: 20px;
-            background: rgba(74, 222, 128, 0.1);
+            background: rgba(249, 115, 22, 0.1);
             color: var(--accent); font-size: 13px; font-weight: 600;
             margin-bottom: 24px;
-            border: 1px solid rgba(74, 222, 128, 0.2);
+            border: 1px solid rgba(249, 115, 22, 0.2);
         }
 
         .hero h1 {
@@ -192,6 +192,19 @@
         .platform-card .icon { font-size: 32px; margin-bottom: 8px; }
         .platform-card h3 { font-size: 16px; font-weight: 600; }
         .platform-card p { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+        .platform-card .download-btn {
+            display: inline-block; margin-top: 12px;
+            padding: 6px 16px; border-radius: 6px;
+            background: var(--accent); color: var(--bg);
+            font-size: 12px; font-weight: 600;
+            text-decoration: none; transition: opacity 0.15s;
+        }
+        .platform-card .download-btn:hover { opacity: 0.9; text-decoration: none; }
+        .platform-card .download-btn.outline {
+            background: transparent; border: 1px solid var(--border);
+            color: var(--text-dim);
+        }
+        .platform-card .download-btn.outline:hover { background: var(--surface); }
 
         /* Footer */
         footer {
@@ -389,26 +402,32 @@
                 <div class="icon">📱</div>
                 <h3>iOS</h3>
                 <p>SwiftUI native</p>
+                <a href="#" class="download-btn outline">Coming Soon</a>
             </div>
             <div class="platform-card">
                 <div class="icon">💻</div>
                 <h3>macOS</h3>
-                <p>Tauri desktop</p>
+                <p>Universal (ARM + Intel)</p>
+                <a href="/downloads/Kuurier_latest_macos.dmg" class="download-btn">Download .dmg</a>
             </div>
             <div class="platform-card">
                 <div class="icon">🐧</div>
                 <h3>Linux</h3>
-                <p>Tauri desktop</p>
+                <p>AppImage / .deb</p>
+                <a href="/downloads/Kuurier_latest_linux.AppImage" class="download-btn">AppImage</a>
+                <a href="/downloads/Kuurier_latest_linux.deb" class="download-btn outline">.deb</a>
             </div>
             <div class="platform-card">
                 <div class="icon">🪟</div>
                 <h3>Windows</h3>
-                <p>Tauri desktop</p>
+                <p>64-bit installer</p>
+                <a href="/downloads/Kuurier_latest_windows.exe" class="download-btn">Download .exe</a>
             </div>
             <div class="platform-card">
                 <div class="icon">🌐</div>
                 <h3>Web</h3>
-                <p>Coming soon</p>
+                <p>No install needed</p>
+                <a href="https://app.kuurier.com" class="download-btn">Open Web App</a>
             </div>
         </div>
     </div>
