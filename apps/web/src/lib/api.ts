@@ -73,13 +73,74 @@ export function getToken(): string | null {
 	return authToken;
 }
 
-// ========== HTTP Helpers ==========
+// ========== HTTP Helpers with retry/backoff ==========
+
+/** Retry configuration for resilient network requests */
+const RETRY_CONFIG = {
+	maxRetries: 3,
+	baseDelayMs: 500,
+	maxDelayMs: 5000,
+	/** Only retry on network errors and server errors, not client errors */
+	retryableStatuses: new Set([408, 429, 500, 502, 503, 504])
+};
+
+/** Sleep helper for backoff delays */
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Execute a fetch with exponential backoff retry for transient failures.
+ * Only retries GET requests and known-safe methods; POST/PUT/DELETE are
+ * only retried on network errors (not HTTP errors, to avoid double-writes).
+ */
+async function fetchWithRetry(
+	url: string,
+	options: RequestInit,
+	retryOnHttpError: boolean
+): Promise<Response> {
+	let lastError: Error | null = null;
+
+	for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+		try {
+			const resp = await fetch(url, options);
+
+			// Don't retry client errors (4xx) except specific retryable ones
+			if (!resp.ok && retryOnHttpError && RETRY_CONFIG.retryableStatuses.has(resp.status)) {
+				if (attempt < RETRY_CONFIG.maxRetries) {
+					const delay = Math.min(
+						RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt),
+						RETRY_CONFIG.maxDelayMs
+					);
+					await sleep(delay);
+					continue;
+				}
+			}
+
+			return resp;
+		} catch (err) {
+			// Network error (offline, DNS failure, etc.) — always retry
+			lastError = err as Error;
+			if (attempt < RETRY_CONFIG.maxRetries) {
+				const delay = Math.min(
+					RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt),
+					RETRY_CONFIG.maxDelayMs
+				);
+				await sleep(delay);
+			}
+		}
+	}
+
+	throw lastError ?? new Error('Request failed after retries');
+}
 
 async function apiGet(path: string): Promise<unknown> {
 	const token = getToken();
-	const resp = await fetch(`${API_BASE}${path}`, {
-		headers: token ? { Authorization: `Bearer ${token}` } : {}
-	});
+	const resp = await fetchWithRetry(
+		`${API_BASE}${path}`,
+		{ headers: token ? { Authorization: `Bearer ${token}` } : {} },
+		true // GET is idempotent, safe to retry on HTTP errors
+	);
 	if (!resp.ok) {
 		const body = await resp.json().catch(() => ({}));
 		throw new Error((body as { error?: string }).error || `HTTP ${resp.status}`);
@@ -89,14 +150,18 @@ async function apiGet(path: string): Promise<unknown> {
 
 async function apiPost(path: string, body?: unknown): Promise<unknown> {
 	const token = getToken();
-	const resp = await fetch(`${API_BASE}${path}`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			...(token ? { Authorization: `Bearer ${token}` } : {})
+	const resp = await fetchWithRetry(
+		`${API_BASE}${path}`,
+		{
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				...(token ? { Authorization: `Bearer ${token}` } : {})
+			},
+			body: body ? JSON.stringify(body) : undefined
 		},
-		body: body ? JSON.stringify(body) : undefined
-	});
+		false // POST is NOT idempotent — only retry on network errors
+	);
 	if (!resp.ok) {
 		const respBody = await resp.json().catch(() => ({}));
 		throw new Error((respBody as { error?: string }).error || `HTTP ${resp.status}`);
@@ -106,14 +171,18 @@ async function apiPost(path: string, body?: unknown): Promise<unknown> {
 
 async function apiPut(path: string, body?: unknown): Promise<unknown> {
 	const token = getToken();
-	const resp = await fetch(`${API_BASE}${path}`, {
-		method: 'PUT',
-		headers: {
-			'Content-Type': 'application/json',
-			...(token ? { Authorization: `Bearer ${token}` } : {})
+	const resp = await fetchWithRetry(
+		`${API_BASE}${path}`,
+		{
+			method: 'PUT',
+			headers: {
+				'Content-Type': 'application/json',
+				...(token ? { Authorization: `Bearer ${token}` } : {})
+			},
+			body: body ? JSON.stringify(body) : undefined
 		},
-		body: body ? JSON.stringify(body) : undefined
-	});
+		false // PUT — only retry on network errors
+	);
 	if (!resp.ok) {
 		const respBody = await resp.json().catch(() => ({}));
 		throw new Error((respBody as { error?: string }).error || `HTTP ${resp.status}`);
@@ -123,10 +192,14 @@ async function apiPut(path: string, body?: unknown): Promise<unknown> {
 
 async function apiDelete(path: string): Promise<unknown> {
 	const token = getToken();
-	const resp = await fetch(`${API_BASE}${path}`, {
-		method: 'DELETE',
-		headers: token ? { Authorization: `Bearer ${token}` } : {}
-	});
+	const resp = await fetchWithRetry(
+		`${API_BASE}${path}`,
+		{
+			method: 'DELETE',
+			headers: token ? { Authorization: `Bearer ${token}` } : {}
+		},
+		true // DELETE is idempotent, safe to retry
+	);
 	if (!resp.ok) {
 		const body = await resp.json().catch(() => ({}));
 		throw new Error((body as { error?: string }).error || `HTTP ${resp.status}`);

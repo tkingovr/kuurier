@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kuurier/server/internal/alerts"
 	"github.com/kuurier/server/internal/auth"
+	"github.com/kuurier/server/internal/bot"
 	"github.com/kuurier/server/internal/config"
 	"github.com/kuurier/server/internal/devices"
 	"github.com/kuurier/server/internal/events"
@@ -24,6 +25,14 @@ import (
 
 // NewRouter creates and configures the API router
 // Returns the router and the WebSocket hub (hub must be Run() in a goroutine)
+// SetNewsBot sets the news bot instance for admin API endpoints.
+// Must be called after NewRouter and before the server starts accepting requests.
+var activeNewsBot *bot.NewsBot
+
+func SetNewsBot(b *bot.NewsBot) {
+	activeNewsBot = b
+}
+
 func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, minio *storage.MinIO, apns *storage.APNs) (*gin.Engine, *websocket.Hub) {
 	// Set Gin mode based on environment
 	if cfg.Environment == "production" {
@@ -34,6 +43,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 
 	// Global middleware
 	router.Use(gin.Recovery())
+	router.Use(middleware.MaxBodySize(10 * 1024 * 1024)) // 10MB max request body
 	router.Use(middleware.Logger())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Security())
@@ -280,6 +290,16 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				pushRoutes.DELETE("/quiet-hours", pushHandler.DeleteQuietHours)
 			}
 
+			// Admin/bot routes
+			adminRoutes := protected.Group("/admin")
+			{
+				// These handlers check is_admin internally
+				botHandler := bot.NewHandler(db, activeNewsBot)
+				adminRoutes.POST("/bot/trigger", botHandler.TriggerRun)
+				adminRoutes.GET("/bot/runs", botHandler.GetRunHistory)
+				adminRoutes.GET("/bot/articles", botHandler.GetPostedArticles)
+			}
+
 			// WebSocket endpoint for real-time messaging
 			protected.GET("/ws", wsHandler.HandleConnection)
 		}
@@ -290,28 +310,46 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 
 func healthCheck(db *storage.Postgres, redis *storage.Redis) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		checks := gin.H{}
+		healthy := true
+
 		// Check database
 		if err := db.HealthCheck(c.Request.Context()); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":   "unhealthy",
-				"database": "down",
-			})
-			return
+			checks["database"] = "down"
+			healthy = false
+		} else {
+			checks["database"] = "up"
 		}
 
 		// Check Redis
 		if err := redis.HealthCheck(c.Request.Context()); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status": "unhealthy",
-				"redis":  "down",
-			})
-			return
+			checks["redis"] = "down"
+			healthy = false
+		} else {
+			checks["redis"] = "up"
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"status":   "healthy",
-			"database": "up",
-			"redis":    "up",
-		})
+		// Database pool stats (for monitoring)
+		dbStats := db.Stats()
+		checks["db_pool"] = gin.H{
+			"total_conns": dbStats.TotalConns(),
+			"idle_conns":  dbStats.IdleConns(),
+			"in_use":      dbStats.TotalConns() - dbStats.IdleConns(),
+			"max_conns":   dbStats.MaxConns(),
+		}
+
+		// Warn if pool is nearly exhausted (>80% in use)
+		poolUsage := float64(dbStats.TotalConns()-dbStats.IdleConns()) / float64(dbStats.MaxConns())
+		if poolUsage > 0.8 {
+			checks["db_pool_warning"] = "pool usage above 80%"
+		}
+
+		if healthy {
+			checks["status"] = "healthy"
+			c.JSON(http.StatusOK, checks)
+		} else {
+			checks["status"] = "unhealthy"
+			c.JSON(http.StatusServiceUnavailable, checks)
+		}
 	}
 }

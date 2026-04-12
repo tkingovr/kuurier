@@ -3,6 +3,7 @@ package messaging
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -82,8 +83,10 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 	}
 
 	// Update channel last_activity
-	h.db.Pool().Exec(c.Request.Context(),
-		`UPDATE channels SET updated_at = NOW() WHERE id = $1`, req.ChannelID)
+	if _, err := h.db.Pool().Exec(c.Request.Context(),
+		`UPDATE channels SET updated_at = NOW() WHERE id = $1`, req.ChannelID); err != nil {
+		log.Printf("messaging: failed to update channel timestamp for %s: %v", req.ChannelID, err)
+	}
 
 	// Fetch the created message with sender display name
 	var msg Message

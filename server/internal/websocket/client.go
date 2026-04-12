@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -28,36 +29,56 @@ const (
 	sendBufferSize = 256
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// In production, validate origin properly
-		return true
-	},
-}
-
 // Client represents a WebSocket client connection
 type Client struct {
 	hub      *Hub
 	conn     *websocket.Conn
 	send     chan []byte
 	userID   string
+	mu       sync.RWMutex   // protects channels map
 	channels map[string]bool
 }
 
 // Handler handles WebSocket connections
 type Handler struct {
-	hub *Hub
-	cfg *config.Config
+	hub      *Hub
+	cfg      *config.Config
+	upgrader websocket.Upgrader
 }
 
-// NewHandler creates a new WebSocket handler
+// NewHandler creates a new WebSocket handler with origin validation
 func NewHandler(cfg *config.Config, hub *Hub) *Handler {
-	return &Handler{
+	h := &Handler{
 		hub: hub,
 		cfg: cfg,
 	}
+
+	h.upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			// In development, allow all origins
+			if cfg.Environment != "production" {
+				return true
+			}
+
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return false // Reject requests with no origin in production
+			}
+
+			for _, allowed := range cfg.AllowedOrigins {
+				if origin == allowed {
+					return true
+				}
+			}
+
+			log.Printf("WebSocket connection rejected: origin=%s not in allowed list", origin)
+			return false
+		},
+	}
+
+	return h
 }
 
 // HandleConnection upgrades HTTP to WebSocket and handles the connection
@@ -68,7 +89,7 @@ func (h *Handler) HandleConnection(c *gin.Context) {
 		return
 	}
 
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Printf("Failed to upgrade connection: %v", err)
 		return

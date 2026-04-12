@@ -169,7 +169,11 @@ func (h *Hub) SubscribeToChannel(client *Client, channelID string) {
 		h.channelClients[channelID] = make(map[*Client]bool)
 	}
 	h.channelClients[channelID][client] = true
+
+	// Protect client.channels with its own mutex to avoid race with readPump
+	client.mu.Lock()
 	client.channels[channelID] = true
+	client.mu.Unlock()
 
 	log.Printf("Client subscribed to channel: user=%s, channel=%s", client.userID, channelID)
 }
@@ -185,7 +189,10 @@ func (h *Hub) UnsubscribeFromChannel(client *Client, channelID string) {
 			delete(h.channelClients, channelID)
 		}
 	}
+
+	client.mu.Lock()
 	delete(client.channels, channelID)
+	client.mu.Unlock()
 
 	log.Printf("Client unsubscribed from channel: user=%s, channel=%s", client.userID, channelID)
 }

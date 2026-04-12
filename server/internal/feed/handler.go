@@ -2,6 +2,7 @@ package feed
 
 import (
 	"context"
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -87,16 +88,26 @@ func (h *Handler) GetFeed(c *gin.Context) {
 	userID := c.GetString("user_id")
 	ctx := c.Request.Context()
 
-	// Parse pagination
+	// Parse and validate pagination
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 
+	if limit < 1 {
+		limit = 1
+	}
 	if limit > 100 {
 		limit = 100
 	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Apply query timeout to prevent slow queries from blocking
+	queryCtx, queryCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer queryCancel()
 
 	// Get posts matching user's subscriptions
-	rows, err := h.db.Pool().Query(ctx, `
+	rows, err := h.db.Pool().Query(queryCtx, `
 		SELECT DISTINCT p.id, p.author_id, p.content, p.source_type,
 			   ST_Y(p.location::geometry) as lat, ST_X(p.location::geometry) as lon,
 			   p.location_name, p.urgency, p.created_at, p.verification_score
@@ -125,7 +136,8 @@ func (h *Handler) GetFeed(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	posts := make([]gin.H, 0) // Initialize as empty slice, not nil (for JSON)
+	posts := make([]gin.H, 0)
+	var postIDs []string
 	for rows.Next() {
 		var id, authorID, content, sourceType string
 		var lat, lon *float64
@@ -134,6 +146,7 @@ func (h *Handler) GetFeed(c *gin.Context) {
 		var createdAt time.Time
 
 		if err := rows.Scan(&id, &authorID, &content, &sourceType, &lat, &lon, &locationName, &urgency, &createdAt, &verificationScore); err != nil {
+			log.Printf("feed: scan error: %v", err)
 			continue
 		}
 
@@ -154,13 +167,16 @@ func (h *Handler) GetFeed(c *gin.Context) {
 			post["location_name"] = *locationName
 		}
 
-		// Fetch media for this post
-		media := h.getPostMedia(ctx, id)
-		if len(media) > 0 {
-			post["media"] = media
-		}
-
 		posts = append(posts, post)
+		postIDs = append(postIDs, id)
+	}
+
+	// Batch-load media for all posts in a single query (eliminates N+1)
+	mediaMap := h.getPostMediaBatch(ctx, postIDs)
+	for i, post := range posts {
+		if media, ok := mediaMap[post["id"].(string)]; ok && len(media) > 0 {
+			posts[i]["media"] = media
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -178,8 +194,14 @@ func (h *Handler) GetFeedV2(c *gin.Context) {
 	feedType := FeedType(c.DefaultQuery("type", string(FeedTypeForYou)))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit < 1 {
+		limit = 1
+	}
 	if limit > 100 {
 		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
 	var lat *float64
@@ -282,12 +304,6 @@ func (h *Handler) CreatePost(c *gin.Context) {
 		req.Urgency = 1
 	}
 
-	// Build location point if provided
-	var locationSQL interface{}
-	if req.Latitude != nil && req.Longitude != nil {
-		locationSQL = "POINT(" + strconv.FormatFloat(*req.Longitude, 'f', 6, 64) + " " + strconv.FormatFloat(*req.Latitude, 'f', 6, 64) + ")"
-	}
-
 	// Handle expiration
 	var expiresAt *time.Time
 	if req.ExpiresAt != nil {
@@ -295,23 +311,35 @@ func (h *Handler) CreatePost(c *gin.Context) {
 		expiresAt = &t
 	}
 
-	// Insert post
-	_, err := h.db.Pool().Exec(ctx, `
-		INSERT INTO posts (id, author_id, content, source_type, location, location_name, urgency, expires_at)
-		VALUES ($1, $2, $3, $4, ST_GeogFromText($5), $6, $7, $8)
-	`, postID, userID, req.Content, req.SourceType, locationSQL, req.LocationName, req.Urgency, expiresAt)
+	// Insert post — use ST_MakePoint with parameterized coordinates (no string building)
+	var err error
+	if req.Latitude != nil && req.Longitude != nil {
+		_, err = h.db.Pool().Exec(ctx, `
+			INSERT INTO posts (id, author_id, content, source_type, location, location_name, urgency, expires_at)
+			VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6)::geography, 4326), $7, $8, $9)
+		`, postID, userID, req.Content, req.SourceType, *req.Longitude, *req.Latitude, req.LocationName, req.Urgency, expiresAt)
+	} else {
+		_, err = h.db.Pool().Exec(ctx, `
+			INSERT INTO posts (id, author_id, content, source_type, location_name, urgency, expires_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, postID, userID, req.Content, req.SourceType, req.LocationName, req.Urgency, expiresAt)
+	}
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create post"})
 		return
 	}
 
-	// Insert topic associations
-	for _, topicID := range req.TopicIDs {
-		h.db.Pool().Exec(ctx, `
-			INSERT INTO post_topics (post_id, topic_id) VALUES ($1, $2)
-			ON CONFLICT DO NOTHING
-		`, postID, topicID)
+	// Insert topic associations (batch insert in a single query for atomicity)
+	if len(req.TopicIDs) > 0 {
+		for _, topicID := range req.TopicIDs {
+			if _, err := h.db.Pool().Exec(ctx, `
+				INSERT INTO post_topics (post_id, topic_id) VALUES ($1, $2)
+				ON CONFLICT DO NOTHING
+			`, postID, topicID); err != nil {
+				log.Printf("feed: failed to insert topic %s for post %s: %v", topicID, postID, err)
+			}
+		}
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -493,6 +521,7 @@ func (h *Handler) GetSubscriptions(c *gin.Context) {
 		var isActive bool
 
 		if err := rows.Scan(&id, &topicID, &topicName, &topicSlug, &lat, &lon, &radiusMeters, &minUrgency, &digestMode, &isActive); err != nil {
+			log.Printf("feed: subscription list scan error: %v", err)
 			continue
 		}
 
@@ -554,15 +583,18 @@ func (h *Handler) CreateSubscription(c *gin.Context) {
 		req.DigestMode = "realtime"
 	}
 
-	var locationSQL interface{}
+	var err error
 	if req.Latitude != nil && req.Longitude != nil {
-		locationSQL = "POINT(" + strconv.FormatFloat(*req.Longitude, 'f', 6, 64) + " " + strconv.FormatFloat(*req.Latitude, 'f', 6, 64) + ")"
+		_, err = h.db.Pool().Exec(ctx, `
+			INSERT INTO subscriptions (id, user_id, topic_id, location, radius_meters, min_urgency, digest_mode)
+			VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4, $5)::geography, 4326), $6, $7, $8)
+		`, subID, userID, req.TopicID, *req.Longitude, *req.Latitude, req.RadiusMeters, req.MinUrgency, req.DigestMode)
+	} else {
+		_, err = h.db.Pool().Exec(ctx, `
+			INSERT INTO subscriptions (id, user_id, topic_id, radius_meters, min_urgency, digest_mode)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, subID, userID, req.TopicID, req.RadiusMeters, req.MinUrgency, req.DigestMode)
 	}
-
-	_, err := h.db.Pool().Exec(ctx, `
-		INSERT INTO subscriptions (id, user_id, topic_id, location, radius_meters, min_urgency, digest_mode)
-		VALUES ($1, $2, $3, ST_GeogFromText($4), $5, $6, $7)
-	`, subID, userID, req.TopicID, locationSQL, req.RadiusMeters, req.MinUrgency, req.DigestMode)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create subscription"})
@@ -648,30 +680,43 @@ func (h *Handler) DeleteSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "subscription deleted"})
 }
 
-// getPostMedia fetches media attachments for a post
+// getPostMedia fetches media attachments for a single post (used for single-post endpoints).
 func (h *Handler) getPostMedia(ctx context.Context, postID string) []gin.H {
+	m := h.getPostMediaBatch(ctx, []string{postID})
+	return m[postID]
+}
+
+// getPostMediaBatch fetches media attachments for multiple posts in a single query.
+// Returns a map of postID -> media items. This eliminates the N+1 query problem.
+func (h *Handler) getPostMediaBatch(ctx context.Context, postIDs []string) map[string][]gin.H {
+	result := make(map[string][]gin.H)
+	if len(postIDs) == 0 {
+		return result
+	}
+
 	rows, err := h.db.Pool().Query(ctx, `
-		SELECT id, media_url, media_type, created_at
+		SELECT post_id, id, media_url, media_type, created_at
 		FROM post_media
-		WHERE post_id = $1
+		WHERE post_id = ANY($1)
 		ORDER BY created_at ASC
-	`, postID)
+	`, postIDs)
 
 	if err != nil {
-		return nil
+		log.Printf("feed: batch media query error: %v", err)
+		return result
 	}
 	defer rows.Close()
 
-	var media []gin.H
 	for rows.Next() {
-		var id, mediaURL, mediaType string
+		var postID, id, mediaURL, mediaType string
 		var createdAt time.Time
 
-		if err := rows.Scan(&id, &mediaURL, &mediaType, &createdAt); err != nil {
+		if err := rows.Scan(&postID, &id, &mediaURL, &mediaType, &createdAt); err != nil {
+			log.Printf("feed: media scan error: %v", err)
 			continue
 		}
 
-		media = append(media, gin.H{
+		result[postID] = append(result[postID], gin.H{
 			"id":         id,
 			"url":        mediaURL,
 			"type":       mediaType,
@@ -679,7 +724,7 @@ func (h *Handler) getPostMedia(ctx context.Context, postID string) []gin.H {
 		})
 	}
 
-	return media
+	return result
 }
 
 func (h *Handler) respondWithNewsFeed(c *gin.Context, limit, offset int) {
@@ -753,6 +798,7 @@ func (h *Handler) getUserSubscriptions(ctx context.Context, userID string) ([]fe
 		var radius *int
 		var minUrgency int
 		if err := rows.Scan(&topicID, &lat, &lon, &radius, &minUrgency); err != nil {
+			log.Printf("feed: subscription scan error: %v", err)
 			continue
 		}
 		subs = append(subs, feedSubscription{
@@ -823,6 +869,7 @@ func (h *Handler) fetchFeedCandidates(ctx context.Context, limit int) ([]postCan
 			&post.authorTrustScore,
 			&topicIDs,
 		); err != nil {
+			log.Printf("feed: candidate scan error: %v", err)
 			continue
 		}
 		post.topicIDs = topicIDs
@@ -973,6 +1020,15 @@ func (h *Handler) mixNewsItems(items []scoredFeedItem, articles []news.NewsArtic
 }
 
 func (h *Handler) buildFeedResponseItems(ctx context.Context, items []scoredFeedItem) []gin.H {
+	// Collect all post IDs for batch media loading
+	var postIDs []string
+	for _, item := range items {
+		if item.post != nil {
+			postIDs = append(postIDs, item.post.id)
+		}
+	}
+	mediaMap := h.getPostMediaBatch(ctx, postIDs)
+
 	result := make([]gin.H, 0, len(items))
 	for _, item := range items {
 		switch item.itemType {
@@ -1008,8 +1064,7 @@ func (h *Handler) buildFeedResponseItems(ctx context.Context, items []scoredFeed
 				postJSON["location_name"] = *post.locationName
 			}
 
-			media := h.getPostMedia(ctx, post.id)
-			if len(media) > 0 {
+			if media, ok := mediaMap[post.id]; ok && len(media) > 0 {
 				postJSON["media"] = media
 			}
 

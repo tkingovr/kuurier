@@ -16,6 +16,17 @@ import (
 	"github.com/kuurier/server/internal/storage"
 )
 
+// MaxBodySize limits the size of request bodies to prevent memory exhaustion attacks.
+// Default: 10MB for regular requests.
+func MaxBodySize(maxBytes int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		}
+		c.Next()
+	}
+}
+
 // Logger provides request logging
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -290,15 +301,21 @@ func RequireTrust(minScore int) gin.HandlerFunc {
 	}
 }
 
-// hashFingerprintHMAC creates a privacy-preserving identifier from request headers
-// SECURITY: Uses HMAC with server secret to prevent fingerprint prediction/manipulation
+// hashFingerprintHMAC creates a privacy-preserving identifier from request metadata.
+// SECURITY: Uses HMAC with server secret to prevent fingerprint prediction/manipulation.
+// Combines multiple signals for better uniqueness while remaining privacy-preserving.
 func hashFingerprintHMAC(c *gin.Context, secret []byte) string {
-	// Use non-identifying headers to create a fingerprint
-	// This is NOT for tracking, just for rate limiting
-	data := c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language") + "|" + c.GetHeader("Accept-Encoding")
+	// Combine multiple request signals for a stronger fingerprint.
+	// The IP is included for rate limiting accuracy but never stored/logged directly.
+	// The HMAC ensures the raw IP cannot be recovered from the fingerprint.
+	ip := c.ClientIP()
+	data := ip + "|" +
+		c.GetHeader("User-Agent") + "|" +
+		c.GetHeader("Accept-Language") + "|" +
+		c.GetHeader("Accept-Encoding") + "|" +
+		c.GetHeader("X-Forwarded-For")
 
-	// Use HMAC-SHA256 with server secret for secure hashing
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(data))
-	return hex.EncodeToString(mac.Sum(nil))[:32] // Truncate to 32 chars for storage efficiency
+	return hex.EncodeToString(mac.Sum(nil))[:32]
 }

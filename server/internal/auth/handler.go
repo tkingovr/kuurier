@@ -124,11 +124,19 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	// Create new user with initial trust score
+	// Create new user atomically within a transaction
 	userID := uuid.New().String()
 	now := time.Now().UTC()
 
-	_, err = h.db.Pool().Exec(ctx,
+	tx, err := h.db.Pool().Begin(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to begin transaction"})
+		return
+	}
+	defer tx.Rollback(ctx) // no-op if committed
+
+	// 1. Create user
+	_, err = tx.Exec(ctx,
 		`INSERT INTO users (id, public_key, created_at, trust_score, is_verified, invited_by, invite_code_used)
 		 VALUES ($1, $2, $3, $4, false, $5, $6)`,
 		userID, pubKeyBytes, now, InitialTrustScore, inviterID, req.InviteCode,
@@ -138,31 +146,51 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	// Mark invite code as used
-	_, err = h.db.Pool().Exec(ctx,
-		`UPDATE invite_codes SET used_at = $1, invitee_id = $2 WHERE code = $3`,
+	// 2. Mark invite code as used (prevents double-use via race condition)
+	_, err = tx.Exec(ctx,
+		`UPDATE invite_codes SET used_at = $1, invitee_id = $2 WHERE code = $3 AND used_at IS NULL`,
 		now, userID, req.InviteCode,
 	)
 	if err != nil {
-		// Log but don't fail - user was created
-		// In production, this should be a transaction
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark invite as used"})
+		return
 	}
 
-	// Create automatic vouch from inviter (type = 'invite')
-	_, err = h.db.Pool().Exec(ctx,
+	// 3. Create automatic vouch from inviter (type = 'invite')
+	_, err = tx.Exec(ctx,
 		`INSERT INTO vouches (voucher_id, vouchee_id, created_at, vouch_type)
 		 VALUES ($1, $2, $3, 'invite')
 		 ON CONFLICT (voucher_id, vouchee_id) DO NOTHING`,
 		inviterID, userID, now,
 	)
 	if err != nil {
-		// Log but don't fail - user was created
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create vouch"})
+		return
 	}
 
-	// Create challenge for the new user
-	challenge, err := h.createChallenge(ctx, userID)
+	// 4. Create auth challenge within the same transaction
+	challengeBytes := make([]byte, 32)
+	if _, err := rand.Read(challengeBytes); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate challenge"})
+		return
+	}
+	challenge := hex.EncodeToString(challengeBytes)
+	expiresAt := now.Add(5 * time.Minute)
+	challengeMAC := h.computeChallengeMAC(challenge, userID, expiresAt)
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO auth_challenges (user_id, challenge, challenge_mac, expires_at)
+		 VALUES ($1, $2, $3, $4)`,
+		userID, challenge, challengeMAC, expiresAt,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create challenge"})
+		return
+	}
+
+	// Commit the entire registration atomically
+	if err := tx.Commit(ctx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "registration failed"})
 		return
 	}
 

@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/kuurier/server/internal/api"
+	"github.com/kuurier/server/internal/bot"
 	"github.com/kuurier/server/internal/config"
+	"github.com/kuurier/server/internal/logger"
 	"github.com/kuurier/server/internal/storage"
 )
 
@@ -20,6 +22,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// Initialize structured logging (JSON in production, text in dev)
+	logger.Init(cfg.Environment)
 
 	// Initialize database connection with configured pool settings
 	db, err := storage.NewPostgres(cfg)
@@ -62,6 +67,12 @@ func main() {
 	// Start WebSocket hub
 	go wsHub.Run()
 	defer wsHub.Stop()
+
+	// Start news aggregation bot (posts twice daily at 8 AM and 6 PM UTC)
+	newsBot := bot.NewNewsBot(db)
+	api.SetNewsBot(newsBot) // Wire bot into admin API endpoints
+	newsBot.Start()
+	defer newsBot.Stop()
 
 	// Create server
 	srv := &http.Server{
