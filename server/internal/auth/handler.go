@@ -175,7 +175,7 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 	challenge := hex.EncodeToString(challengeBytes)
-	expiresAt := now.Add(5 * time.Minute)
+	expiresAt = now.Add(5 * time.Minute)
 	challengeMAC := h.computeChallengeMAC(challenge, userID, expiresAt)
 
 	_, err = tx.Exec(ctx,
