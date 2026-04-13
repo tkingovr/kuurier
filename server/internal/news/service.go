@@ -1,6 +1,7 @@
 package news
 
 import (
+	"log"
 	"net/http"
 	"sort"
 	"sync"
@@ -67,7 +68,7 @@ func (s *Service) fetchAllNews() []NewsArticle {
 
 			articles, err := fetchRSSFeed(client, src.URL, src.Name, src.Icon, src.Category)
 			if err != nil {
-				// Log error but continue with other sources
+				log.Printf("[news] Failed to fetch RSS from %s (%s): %v", src.Name, src.URL, err)
 				return
 			}
 

@@ -242,9 +242,12 @@ func (h *Handler) GetFeedV2(c *gin.Context) {
 
 	scoredItems := h.rankFeedCandidates(feedType, candidates, subscriptions, topicNames, lat, lon, radiusMeters, minUrgency)
 
-	// Optionally mix in news for "for_you"
+	// Mix in live RSS news for "for_you" feed
 	if feedType == FeedTypeForYou && h.newsService != nil {
-		articles, _ := h.newsService.GetNews()
+		articles, cached := h.newsService.GetNews()
+		if len(articles) == 0 {
+			log.Printf("[feed] Warning: news service returned 0 articles (cached=%v) — RSS feeds may be unreachable", cached)
+		}
 		scoredItems = h.mixNewsItems(scoredItems, articles)
 	}
 
@@ -963,6 +966,11 @@ func (h *Handler) rankFeedCandidates(
 			score = 0.30*recency + 0.25*interest + 0.20*proximity + 0.15*urgency + 0.10*trust - 0.10*negative
 		}
 
+		// Boost news posts so they aren't buried behind community posts
+		if post.sourceType == "mainstream" {
+			score += 0.15 * recency
+		}
+
 		why := buildWhyList(feedType, topicMatch, matchedTopic, topicNames, proximity, urgency, trust)
 
 		scored = append(scored, scoredFeedItem{
@@ -976,11 +984,17 @@ func (h *Handler) rankFeedCandidates(
 	sort.Slice(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
 
 	// Basic author diversity: avoid long streaks by the same author.
+	// News bot posts (source_type=mainstream) are exempt — they share one author
+	// but represent different sources and should not be deduplicated.
 	var diversified []scoredFeedItem
 	var lastAuthor string
 	streak := 0
 	for _, item := range scored {
 		if item.post == nil {
+			diversified = append(diversified, item)
+			continue
+		}
+		if item.post.sourceType == "mainstream" {
 			diversified = append(diversified, item)
 			continue
 		}
