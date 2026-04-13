@@ -735,5 +735,60 @@ VALUES (
 ) ON CONFLICT (code) DO NOTHING;
 
 -- ============================================================================
+-- BOT SYSTEM (News + Protest Scrapers)
+-- ============================================================================
+
+-- News bot system user (well-known ID, cannot authenticate — zeroed public key)
+INSERT INTO users (id, public_key, created_at, trust_score, is_verified, display_name, is_admin)
+VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    decode('0000000000000000000000000000000000000000000000000000000000000000', 'hex'),
+    NOW(),
+    100,
+    true,
+    'Kuurier News Bot',
+    false
+) ON CONFLICT (id) DO NOTHING;
+
+-- Track which articles have already been posted (news bot dedup)
+CREATE TABLE IF NOT EXISTS bot_posted_articles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    article_url TEXT NOT NULL UNIQUE,
+    article_title TEXT NOT NULL,
+    post_id UUID REFERENCES posts(id) ON DELETE SET NULL,
+    source_name TEXT NOT NULL,
+    posted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bot_posted_articles_url ON bot_posted_articles (article_url);
+CREATE INDEX IF NOT EXISTS idx_bot_posted_articles_posted_at ON bot_posted_articles (posted_at DESC);
+
+-- Bot run log for observability (shared by all bots)
+CREATE TABLE IF NOT EXISTS bot_run_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_type TEXT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    articles_fetched INT DEFAULT 0,
+    articles_posted INT DEFAULT 0,
+    errors TEXT[],
+    status TEXT NOT NULL DEFAULT 'running'
+);
+
+-- Track which protests have already been scraped (protest bot dedup)
+CREATE TABLE IF NOT EXISTS bot_scraped_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_id TEXT NOT NULL UNIQUE,
+    source_url TEXT NOT NULL DEFAULT '',
+    event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    scraped_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bot_scraped_events_source_id ON bot_scraped_events (source_id);
+CREATE INDEX IF NOT EXISTS idx_bot_scraped_events_scraped_at ON bot_scraped_events (scraped_at DESC);
+
+-- ============================================================================
 -- END OF SCHEMA
 -- ============================================================================

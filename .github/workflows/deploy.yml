@@ -44,6 +44,14 @@ jobs:
             git fetch origin
             git reset --hard origin/${{ github.ref_name }}
 
+            # Run pending migrations against the database
+            for migration in migrations/012_*.sql migrations/013_*.sql; do
+              if [ -f "$migration" ]; then
+                echo "Applying migration: $migration"
+                docker exec -i kuurier-postgres psql -U "${DB_USER:-kuurier}" -d "${DB_NAME:-kuurier}" < "$migration" 2>&1 || true
+              fi
+            done
+
             # Rebuild image without cache to ensure latest code is used
             docker build --no-cache -t kuurier-server:latest .
 
