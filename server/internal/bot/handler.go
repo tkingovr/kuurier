@@ -9,34 +9,28 @@ import (
 	"github.com/kuurier/server/internal/storage"
 )
 
-// Handler provides HTTP endpoints for monitoring and controlling the news bot.
+// Handler provides HTTP endpoints for monitoring and controlling bots.
 type Handler struct {
-	db  *storage.Postgres
-	bot *NewsBot
+	db         *storage.Postgres
+	newsBot    *NewsBot
+	protestBot *ProtestBot
 }
 
 // NewHandler creates a new bot handler.
-func NewHandler(db *storage.Postgres, bot *NewsBot) *Handler {
-	return &Handler{db: db, bot: bot}
+func NewHandler(db *storage.Postgres, newsBot *NewsBot, protestBot *ProtestBot) *Handler {
+	return &Handler{db: db, newsBot: newsBot, protestBot: protestBot}
 }
 
 // TriggerRun manually triggers a news aggregation run (admin only).
 func (h *Handler) TriggerRun(c *gin.Context) {
-	// Check admin status
-	userID := c.GetString("user_id")
-	var isAdmin bool
-	h.db.Pool().QueryRow(c.Request.Context(), "SELECT COALESCE(is_admin, false) FROM users WHERE id = $1", userID).Scan(&isAdmin)
-	if !isAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"error": "admin access required"})
+	if !h.checkAdmin(c) {
 		return
 	}
 
-	// Run in background
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if err := h.bot.RunOnce(ctx); err != nil {
-			// Already logged inside RunOnce
+		if err := h.newsBot.RunOnce(ctx); err != nil {
 			_ = err
 		}
 	}()
@@ -44,13 +38,37 @@ func (h *Handler) TriggerRun(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"message": "news aggregation run triggered"})
 }
 
-// GetRunHistory returns the recent bot run history (admin only).
-func (h *Handler) GetRunHistory(c *gin.Context) {
+// TriggerProtestScrape manually triggers a protest scrape run (admin only).
+func (h *Handler) TriggerProtestScrape(c *gin.Context) {
+	if !h.checkAdmin(c) {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if err := h.protestBot.RunOnce(ctx); err != nil {
+			_ = err
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{"message": "protest scrape run triggered"})
+}
+
+func (h *Handler) checkAdmin(c *gin.Context) bool {
 	userID := c.GetString("user_id")
 	var isAdmin bool
 	h.db.Pool().QueryRow(c.Request.Context(), "SELECT COALESCE(is_admin, false) FROM users WHERE id = $1", userID).Scan(&isAdmin)
 	if !isAdmin {
 		c.JSON(http.StatusForbidden, gin.H{"error": "admin access required"})
+		return false
+	}
+	return true
+}
+
+// GetRunHistory returns the recent bot run history (admin only).
+func (h *Handler) GetRunHistory(c *gin.Context) {
+	if !h.checkAdmin(c) {
 		return
 	}
 
@@ -96,11 +114,7 @@ func (h *Handler) GetRunHistory(c *gin.Context) {
 
 // GetPostedArticles returns recently posted articles (admin only).
 func (h *Handler) GetPostedArticles(c *gin.Context) {
-	userID := c.GetString("user_id")
-	var isAdmin bool
-	h.db.Pool().QueryRow(c.Request.Context(), "SELECT COALESCE(is_admin, false) FROM users WHERE id = $1", userID).Scan(&isAdmin)
-	if !isAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"error": "admin access required"})
+	if !h.checkAdmin(c) {
 		return
 	}
 

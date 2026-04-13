@@ -70,9 +70,15 @@ func main() {
 
 	// Start news aggregation bot (posts twice daily at 8 AM and 6 PM UTC)
 	newsBot := bot.NewNewsBot(db)
-	api.SetNewsBot(newsBot) // Wire bot into admin API endpoints
+	api.SetNewsBot(newsBot)
 	newsBot.Start()
 	defer newsBot.Stop()
+
+	// Start protest scraper bot (scrapes findaprotest.info twice daily at 7 AM and 5 PM UTC)
+	protestBot := bot.NewProtestBot(db)
+	api.SetProtestBot(protestBot)
+	protestBot.Start()
+	defer protestBot.Stop()
 
 	// Create server
 	srv := &http.Server{

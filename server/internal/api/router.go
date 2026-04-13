@@ -28,9 +28,14 @@ import (
 // SetNewsBot sets the news bot instance for admin API endpoints.
 // Must be called after NewRouter and before the server starts accepting requests.
 var activeNewsBot *bot.NewsBot
+var activeProtestBot *bot.ProtestBot
 
 func SetNewsBot(b *bot.NewsBot) {
 	activeNewsBot = b
+}
+
+func SetProtestBot(b *bot.ProtestBot) {
+	activeProtestBot = b
 }
 
 func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, minio *storage.MinIO, apns *storage.APNs) (*gin.Engine, *websocket.Hub) {
@@ -294,8 +299,9 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 			adminRoutes := protected.Group("/admin")
 			{
 				// These handlers check is_admin internally
-				botHandler := bot.NewHandler(db, activeNewsBot)
+				botHandler := bot.NewHandler(db, activeNewsBot, activeProtestBot)
 				adminRoutes.POST("/bot/trigger", botHandler.TriggerRun)
+				adminRoutes.POST("/bot/protests/trigger", botHandler.TriggerProtestScrape)
 				adminRoutes.GET("/bot/runs", botHandler.GetRunHistory)
 				adminRoutes.GET("/bot/articles", botHandler.GetPostedArticles)
 			}
