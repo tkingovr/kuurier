@@ -50,17 +50,39 @@ jobs:
 
             echo "=== Recovering .env from running containers if missing ==="
             if [ ! -f "$DEPLOY_DIR/.env" ]; then
-              echo "No .env present — extracting from kuurier-api-blue"
-              {
-                docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(DB_PASSWORD|REDIS_PASSWORD|JWT_SECRET|ENCRYPTION_KEY|CORS_ALLOWED_ORIGINS|DB_USER|DB_NAME|APNS_|MINIO_|BLUE_VERSION|GREEN_VERSION)=' || true
-              } > "$DEPLOY_DIR/.env.recovered"
-              # Also pull DB_USER/DB_NAME defaults from postgres container
-              docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^POSTGRES_(USER|DB|PASSWORD)=' | sed 's/^POSTGRES_USER=/DB_USER=/; s/^POSTGRES_DB=/DB_NAME=/; s/^POSTGRES_PASSWORD=/DB_PASSWORD=/' >> "$DEPLOY_DIR/.env.recovered" || true
+              echo "No .env present — extracting from running containers"
+              RECOVERY="$DEPLOY_DIR/.env.recovered"
+              : > "$RECOVERY"
+
+              # App-level secrets from api-blue
+              docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' \
+                | grep -E '^(JWT_SECRET|ENCRYPTION_KEY|CORS_ALLOWED_ORIGINS|APNS_|MINIO_|BLUE_VERSION|GREEN_VERSION)=' \
+                >> "$RECOVERY" || true
+
+              # DB credentials from postgres container
+              docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}' \
+                | grep -E '^POSTGRES_(USER|DB|PASSWORD)=' \
+                | sed 's/^POSTGRES_USER=/DB_USER=/; s/^POSTGRES_DB=/DB_NAME=/; s/^POSTGRES_PASSWORD=/DB_PASSWORD=/' \
+                >> "$RECOVERY" || true
+
+              # REDIS_PASSWORD: parse from redis container's command string
+              # The command looks like: redis-server --requirepass <pass> --maxmemory ...
+              REDIS_PASS=$(docker inspect kuurier-redis --format '{{range .Config.Cmd}}{{println .}}{{end}}' | grep -A1 requirepass | tail -1 || true)
+              if [ -z "$REDIS_PASS" ]; then
+                # Fallback: parse from REDIS_URL in api-blue
+                REDIS_URL=$(docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^REDIS_URL=' | cut -d= -f2-)
+                REDIS_PASS=$(echo "$REDIS_URL" | sed -n 's|redis://[^:]*:\([^@]*\)@.*|\1|p')
+              fi
+              if [ -n "$REDIS_PASS" ]; then
+                echo "REDIS_PASSWORD=$REDIS_PASS" >> "$RECOVERY"
+              fi
+
               # Deduplicate keeping first occurrence
-              awk -F= '!seen[$1]++' "$DEPLOY_DIR/.env.recovered" > "$DEPLOY_DIR/.env"
-              rm -f "$DEPLOY_DIR/.env.recovered"
+              awk -F= '!seen[$1]++' "$RECOVERY" > "$DEPLOY_DIR/.env"
+              rm -f "$RECOVERY"
               chmod 600 "$DEPLOY_DIR/.env"
               echo ".env restored with $(wc -l < "$DEPLOY_DIR/.env") entries"
+              echo "Keys recovered: $(cut -d= -f1 < "$DEPLOY_DIR/.env" | tr '\n' ' ')"
             fi
 
             echo "=== Syncing server/ contents into $DEPLOY_DIR ==="
