@@ -30,6 +30,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Encode PRODUCTION_ENV for transport
+        id: encode_env
+        env:
+          PRODUCTION_ENV: ${{ secrets.PRODUCTION_ENV }}
+        run: |
+          # If the secret isn't set yet, pass an empty value and the
+          # server-side script will fall back to its legacy recovery path.
+          # After the secret is added and one deploy is verified, the
+          # fallback can be removed (Phase 1.5 task 3).
+          if [ -z "${PRODUCTION_ENV:-}" ]; then
+            echo "PROD_ENV_B64=" >> "$GITHUB_ENV"
+            echo "::notice::PRODUCTION_ENV secret is not set — deploy will use legacy container-introspection fallback. Set it per docs/SECRETS.md."
+          else
+            B64=$(printf '%s' "$PRODUCTION_ENV" | base64 -w0)
+            # Mask the base64 form so it can't leak into logs even if echoed.
+            echo "::add-mask::$B64"
+            echo "PROD_ENV_B64=$B64" >> "$GITHUB_ENV"
+          fi
+
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
         env:
@@ -37,13 +56,14 @@ jobs:
           DEPLOY_BRANCH: ${{ github.ref_name }}
           DEPLOY_REPO: ${{ github.repository }}
           DEPLOY_BUILD_DATE: ${{ github.event.repository.updated_at }}
+          PROD_ENV_B64: ${{ env.PROD_ENV_B64 }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 2222
           script_stop: true
-          envs: DEPLOY_SHA,DEPLOY_BRANCH,DEPLOY_REPO,DEPLOY_BUILD_DATE
+          envs: DEPLOY_SHA,DEPLOY_BRANCH,DEPLOY_REPO,DEPLOY_BUILD_DATE,PROD_ENV_B64
           script: |
             set -e
 
@@ -53,47 +73,53 @@ jobs:
             echo "=== Cloning latest code into $STAGE_DIR (sha=$DEPLOY_SHA) ==="
             git clone --depth 1 --branch "$DEPLOY_BRANCH" "https://github.com/${DEPLOY_REPO}.git" "$STAGE_DIR/repo"
 
-            echo "=== Ensuring .env has all required keys ==="
-            touch "$DEPLOY_DIR/.env"
-            chmod 600 "$DEPLOY_DIR/.env"
+            echo "=== Writing .env from GitHub Actions secret ==="
+            if [ -n "${PROD_ENV_B64:-}" ]; then
+              # Canonical path: secret is the source of truth. Write
+              # atomically so a failed write never leaves .env empty.
+              umask 077
+              echo "$PROD_ENV_B64" | base64 -d > "$DEPLOY_DIR/.env.new"
+              chmod 600 "$DEPLOY_DIR/.env.new"
+              mv "$DEPLOY_DIR/.env.new" "$DEPLOY_DIR/.env"
+              echo ".env written from GitHub secret ($(wc -l < "$DEPLOY_DIR/.env") lines)"
+            else
+              echo "WARNING: PROD_ENV_B64 empty — using legacy container-introspection recovery."
+              echo "Add the PRODUCTION_ENV secret per docs/SECRETS.md to switch to the canonical path."
+              touch "$DEPLOY_DIR/.env"
+              chmod 600 "$DEPLOY_DIR/.env"
 
-            # Pull env vars from the running containers and append any missing ones
-            TMP_ENV=$(mktemp)
-            docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' > "$TMP_ENV.api"
-            docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}' > "$TMP_ENV.pg"
+              TMP_ENV=$(mktemp)
+              docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' > "$TMP_ENV.api"
+              docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}' > "$TMP_ENV.pg"
 
-            add_if_missing() {
-              NAME=$1
-              VAL=$2
-              if [ -n "$VAL" ] && ! grep -q "^$NAME=" "$DEPLOY_DIR/.env"; then
-                printf '%s=%s\n' "$NAME" "$VAL" >> "$DEPLOY_DIR/.env"
-                echo "  + recovered $NAME"
-              fi
-            }
+              add_if_missing() {
+                NAME=$1
+                VAL=$2
+                if [ -n "$VAL" ] && ! grep -q "^$NAME=" "$DEPLOY_DIR/.env"; then
+                  printf '%s=%s\n' "$NAME" "$VAL" >> "$DEPLOY_DIR/.env"
+                fi
+              }
 
-            for key in JWT_SECRET ENCRYPTION_KEY CORS_ALLOWED_ORIGINS BLUE_VERSION GREEN_VERSION; do
-              val=$(grep "^${key}=" "$TMP_ENV.api" | head -1 | cut -d= -f2-)
-              add_if_missing "$key" "$val"
-            done
+              for key in JWT_SECRET ENCRYPTION_KEY CORS_ALLOWED_ORIGINS BLUE_VERSION GREEN_VERSION; do
+                val=$(grep "^${key}=" "$TMP_ENV.api" | head -1 | cut -d= -f2-)
+                add_if_missing "$key" "$val"
+              done
+              add_if_missing DB_USER "$(grep '^POSTGRES_USER=' "$TMP_ENV.pg" | cut -d= -f2-)"
+              add_if_missing DB_NAME "$(grep '^POSTGRES_DB=' "$TMP_ENV.pg" | cut -d= -f2-)"
+              add_if_missing DB_PASSWORD "$(grep '^POSTGRES_PASSWORD=' "$TMP_ENV.pg" | cut -d= -f2-)"
+              REDIS_URL_LINE=$(grep '^REDIS_URL=' "$TMP_ENV.api" | head -1 | cut -d= -f2-)
+              REDIS_PASS=$(echo "$REDIS_URL_LINE" | sed -n 's|^redis://[^:]*:\([^@]*\)@.*|\1|p')
+              add_if_missing REDIS_PASSWORD "$REDIS_PASS"
+              rm -f "$TMP_ENV" "$TMP_ENV.api" "$TMP_ENV.pg"
+            fi
 
-            add_if_missing DB_USER "$(grep '^POSTGRES_USER=' "$TMP_ENV.pg" | cut -d= -f2-)"
-            add_if_missing DB_NAME "$(grep '^POSTGRES_DB=' "$TMP_ENV.pg" | cut -d= -f2-)"
-            add_if_missing DB_PASSWORD "$(grep '^POSTGRES_PASSWORD=' "$TMP_ENV.pg" | cut -d= -f2-)"
-
-            REDIS_URL_LINE=$(grep '^REDIS_URL=' "$TMP_ENV.api" | head -1 | cut -d= -f2-)
-            REDIS_PASS=$(echo "$REDIS_URL_LINE" | sed -n 's|^redis://[^:]*:\([^@]*\)@.*|\1|p')
-            add_if_missing REDIS_PASSWORD "$REDIS_PASS"
-
-            rm -f "$TMP_ENV" "$TMP_ENV.api" "$TMP_ENV.pg"
-
-            # Verify required keys are present
+            # Verify required keys are present regardless of which path we took.
             for k in DB_PASSWORD REDIS_PASSWORD JWT_SECRET ENCRYPTION_KEY CORS_ALLOWED_ORIGINS; do
               if ! grep -q "^${k}=" "$DEPLOY_DIR/.env"; then
                 echo "ERROR: required key $k missing from .env"
                 exit 1
               fi
             done
-            echo ".env has $(wc -l < "$DEPLOY_DIR/.env") entries"
 
             echo "=== Syncing server/ contents into $DEPLOY_DIR ==="
             rsync -a --delete \
