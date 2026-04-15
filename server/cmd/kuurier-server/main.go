@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/kuurier/server/internal/bot"
 	"github.com/kuurier/server/internal/config"
 	"github.com/kuurier/server/internal/logger"
+	"github.com/kuurier/server/internal/migrations"
 	"github.com/kuurier/server/internal/storage"
 )
 
@@ -30,6 +32,11 @@ func BuildInfo() (version, sha, buildDate string) {
 }
 
 func main() {
+	// --migrate-only: run migrations and exit. Useful for CI and for
+	// out-of-band schema updates that shouldn't also restart the API.
+	migrateOnly := flag.Bool("migrate-only", false, "run database migrations and exit")
+	flag.Parse()
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -47,6 +54,21 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
+
+	// Apply any pending migrations before anything else touches the DB.
+	// Uses a postgres advisory lock so blue+green racing on deploy resolves
+	// safely — only one runs migrations, the other waits then continues.
+	migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	if err := migrations.Run(migrateCtx, db.Pool()); err != nil {
+		migrateCancel()
+		log.Fatalf("Failed to apply migrations: %v", err)
+	}
+	migrateCancel()
+
+	if *migrateOnly {
+		log.Println("--migrate-only set, exiting after successful migration run")
+		return
+	}
 
 	// Initialize Redis connection
 	redis, err := storage.NewRedis(cfg.RedisURL)

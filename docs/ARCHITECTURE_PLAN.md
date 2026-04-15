@@ -65,27 +65,32 @@ Background: full architecture review lives in the session log; the gaps this pla
 **Depends on:** Phase 1.2 (migration table populated and consistent).
 **Estimated effort:** 1 week.
 
-### 2.1 Adopt `pressly/goose` or equivalent
-- [ ] Decision: `pressly/goose` vs `golang-migrate/migrate`. Goose is simpler for embedded files; migrate has more drivers. Pick one and note the decision in this file.
-- [ ] Add the chosen library to `go.mod`.
-- [ ] Rename migration files from `013_protest_bot.sql` to goose format if needed (goose accepts `NNN_name.sql` with `-- +goose Up` / `-- +goose Down` markers).
+### 2.1 Adopt `pressly/goose` or equivalent ✅
+**Decision: roll our own (~80 lines).** Both goose and golang-migrate use their own version-tracking table schemas (integer `version_id` vs our existing `version VARCHAR(255)`), meaning we'd need to migrate state in production. Our requirements are minimal (apply ordered SQL files, track applied set, advisory lock), the pure-Go migrator fits in one file, and staying with our existing `schema_migrations(version, applied_at)` table avoids a state migration. Custom code beats dependency + state migration here.
+- [x] No dependency added — `database/sql` and `jackc/pgx/v5` (already present) are enough.
+- [x] Keep existing file naming (`NNN_name.sql`); no goose markers needed.
 
-### 2.2 Embed migrations into the binary
-- [ ] Create `server/internal/migrations/migrations.go` with a `//go:embed migrations/*.sql` directive and a `RunMigrations(ctx, pool)` function.
-- [ ] Wrap the migration run in a `pg_try_advisory_lock(<constant>)` so only one process runs them when blue+green start simultaneously.
-- [ ] Move the physical `.sql` files to `server/internal/migrations/sql/` (or adjust the embed path) so they're included in the Go binary.
+### 2.2 Embed migrations into the binary ✅
+- [x] `server/internal/migrations/migrations.go` uses `//go:embed sql/*.sql` and exposes `Run(ctx, pool)`.
+- [x] Advisory lock via `pg_advisory_lock(4242424242)` — blocks the second caller, which then observes the applied set and no-ops.
+- [x] 13 migration files moved to `server/internal/migrations/sql/`; `000_complete_schema.sql` deleted (no longer authoritative).
+- [x] Bootstrap shortcut preserved: if `schema_migrations` is empty but `public.users` exists, mark all embedded migrations as applied (the existing prod state).
+- [x] Each migration + its tracking INSERT runs in one transaction.
 
-### 2.3 Call on startup
-- [ ] Add `if err := migrations.RunMigrations(ctx, db.Pool()); err != nil { log.Fatalf(...) }` at the top of `cmd/kuurier-server/main.go`, right after DB connection.
-- [ ] Also call it from the future `cmd/kuurier-worker/main.go` once Phase 3 lands.
+### 2.3 Call on startup ✅
+- [x] `cmd/kuurier-server/main.go` runs `migrations.Run(ctx, db.Pool())` with a 2-minute timeout immediately after the DB pool is created, before any other initialization.
+- [x] `--migrate-only` flag added so the same binary can be invoked in a one-shot mode for CI and out-of-band ops.
+- [ ] Worker binary will call the same function when Phase 3 ships.
 
-### 2.4 Remove the legacy bootstrap path
-- [ ] Delete the `./migrations/000_complete_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro` mount from `docker-compose.prod.yml`.
-- [ ] Keep `000_complete_schema.sql` as documentation only (add a header comment making this clear), or delete it entirely — team decision.
+### 2.4 Remove the legacy bootstrap path ✅
+- [x] Deleted `./migrations/000_complete_schema.sql:/docker-entrypoint-initdb.d/...` mount from both `docker-compose.prod.yml` and `docker-compose.yml`.
+- [x] Deleted `000_complete_schema.sql` — embedded migrations 001-013 are authoritative.
+- [x] Deleted the in-deploy shell migration block from `deploy.yml` — app handles it on startup.
 
-### 2.5 CI coverage
-- [ ] Add a CI job that spins up a fresh PostGIS container, runs the API binary in migrate-only mode (add a `--migrate-only` flag), and asserts exit code 0.
-- [ ] Add a second CI job that runs migrations twice to catch idempotency regressions.
+### 2.5 CI coverage ✅
+- [x] New CI job `test-migrations`: starts PostGIS service, runs `go run ./cmd/kuurier-server --migrate-only` against a fresh DB, verifies exit code 0.
+- [x] Second run of the same command must NOT emit a `"migration applied"` log line — catches non-idempotent migrations by failing the CI job.
+- [x] Final step `psql` queries `schema_migrations` and fails if fewer than 10 rows are present (sanity check that the embed actually ran).
 
 ---
 

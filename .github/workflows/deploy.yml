@@ -115,55 +115,9 @@ jobs:
 
             cd "$DEPLOY_DIR"
 
-            echo "=== Running tracked migrations ==="
-            PSQL="docker exec -i kuurier-postgres psql -U kuurier -d kuurier -v ON_ERROR_STOP=1"
-
-            # 1. Ensure the tracking table exists.
-            echo "CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW());" | $PSQL > /dev/null
-
-            # 2. One-time bootstrap: if the table is empty but the DB already
-            # has real tables (e.g. existing prod DB that predates migration
-            # tracking), mark every migration file as already-applied rather
-            # than trying to re-run them against a populated schema.
-            APPLIED_COUNT=$(docker exec -i kuurier-postgres psql -U kuurier -d kuurier -tAc "SELECT COUNT(*) FROM schema_migrations")
-            USERS_TABLE_EXISTS=$(docker exec -i kuurier-postgres psql -U kuurier -d kuurier -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='users'")
-
-            if [ "$APPLIED_COUNT" = "0" ] && [ "$USERS_TABLE_EXISTS" = "1" ]; then
-              echo "  [bootstrap] schema_migrations empty but DB has existing tables — marking all known migrations as applied"
-              for migration in migrations/[0-9]*.sql; do
-                [ -f "$migration" ] || continue
-                version=$(basename "$migration" .sql)
-                echo "INSERT INTO schema_migrations (version) VALUES ('$version') ON CONFLICT DO NOTHING;" | $PSQL > /dev/null
-                echo "    backfilled: $version"
-              done
-            fi
-
-            # 3. Apply any pending migrations (not yet in schema_migrations).
-            APPLIED=$(docker exec -i kuurier-postgres psql -U kuurier -d kuurier -tAc "SELECT version FROM schema_migrations ORDER BY version")
-            PENDING=0
-            for migration in migrations/[0-9]*.sql; do
-              [ -f "$migration" ] || continue
-              version=$(basename "$migration" .sql)
-              if echo "$APPLIED" | grep -qx "$version"; then
-                continue
-              fi
-              PENDING=$((PENDING + 1))
-              echo "  [apply] $version"
-              # Wrap migration + tracking insert in a single transaction so a
-              # failure rolls back both.
-              (
-                echo "BEGIN;"
-                cat "$migration"
-                echo "INSERT INTO schema_migrations (version) VALUES ('$version');"
-                echo "COMMIT;"
-              ) | $PSQL
-            done
-
-            if [ "$PENDING" = "0" ]; then
-              echo "  No pending migrations."
-            else
-              echo "  Applied $PENDING migration(s)."
-            fi
+            # Migrations are now embedded in the binary and applied on
+            # startup via an advisory-lock-guarded Go runner. No shell
+            # migration step here — the app container handles it.
 
             echo "=== Building image (sha=$DEPLOY_SHA) ==="
             BUILD_DATE="${DEPLOY_BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"

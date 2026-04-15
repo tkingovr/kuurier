@@ -71,6 +71,87 @@ jobs:
         continue-on-error: true
 
   # ============================================
+  # Migration Verification
+  # Boots the binary with --migrate-only against a fresh PostGIS
+  # instance, then runs it a second time to catch idempotency
+  # regressions (second run should be a no-op).
+  # ============================================
+  test-migrations:
+    name: Migrations Apply Cleanly
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: kuurier_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: kuurier_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: server/go.sum
+
+      - name: Install dependencies
+        working-directory: ./server
+        run: go mod download
+
+      - name: Apply migrations (first run, from empty DB)
+        working-directory: ./server
+        env:
+          DATABASE_URL: postgres://kuurier_test:test_password@localhost:5432/kuurier_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test_jwt_secret_for_ci_testing_must_be_32
+          ENCRYPTION_KEY: 12345678901234567890123456789012
+          ENVIRONMENT: test
+          CORS_ALLOWED_ORIGINS: http://localhost
+        run: go run ./cmd/kuurier-server --migrate-only
+
+      - name: Apply migrations (second run, must be a no-op)
+        working-directory: ./server
+        env:
+          DATABASE_URL: postgres://kuurier_test:test_password@localhost:5432/kuurier_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test_jwt_secret_for_ci_testing_must_be_32
+          ENCRYPTION_KEY: 12345678901234567890123456789012
+          ENVIRONMENT: test
+          CORS_ALLOWED_ORIGINS: http://localhost
+        run: |
+          OUTPUT=$(go run ./cmd/kuurier-server --migrate-only 2>&1)
+          echo "$OUTPUT"
+          # The second run should not apply anything. Any "migration applied"
+          # line indicates a non-idempotent migration that re-runs on every
+          # startup — a real bug we want to catch in CI.
+          if echo "$OUTPUT" | grep -q '"msg":"migration applied"'; then
+            echo "ERROR: second migrate-only run re-applied migrations"
+            exit 1
+          fi
+
+      - name: Verify schema_migrations populated
+        env:
+          PGPASSWORD: test_password
+        run: |
+          COUNT=$(psql -h localhost -U kuurier_test -d kuurier_test -tAc "SELECT COUNT(*) FROM schema_migrations")
+          echo "schema_migrations rows: $COUNT"
+          if [ "$COUNT" -lt 10 ]; then
+            echo "ERROR: expected at least 10 tracked migrations, got $COUNT"
+            exit 1
+          fi
+
+  # ============================================
   # Build Docker Image
   # ============================================
   build:
