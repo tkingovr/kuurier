@@ -48,40 +48,56 @@ jobs:
             echo "=== Cloning latest code into $STAGE_DIR ==="
             git clone --depth 1 --branch "${{ github.ref_name }}" https://github.com/${{ github.repository }}.git "$STAGE_DIR/repo"
 
-            echo "=== Recovering .env from running containers if missing ==="
-            if [ ! -f "$DEPLOY_DIR/.env" ]; then
-              echo "No .env present — extracting from running containers"
-              RECOVERY="$DEPLOY_DIR/.env.recovered"
-              : > "$RECOVERY"
+            echo "=== Ensuring .env has all required keys ==="
+            REQUIRED_KEYS="DB_PASSWORD REDIS_PASSWORD JWT_SECRET ENCRYPTION_KEY CORS_ALLOWED_ORIGINS"
+            touch "$DEPLOY_DIR/.env"
+            chmod 600 "$DEPLOY_DIR/.env"
 
-              # App-level secrets from api-blue
-              docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' \
-                | grep -E '^(JWT_SECRET|ENCRYPTION_KEY|CORS_ALLOWED_ORIGINS|APNS_|MINIO_|BLUE_VERSION|GREEN_VERSION)=' \
-                >> "$RECOVERY" || true
+            has_key() { grep -q "^$1=" "$DEPLOY_DIR/.env"; }
+            add_key() {
+              if [ -n "$2" ] && ! has_key "$1"; then
+                echo "$1=$2" >> "$DEPLOY_DIR/.env"
+                echo "  + recovered $1"
+              fi
+            }
 
-              # DB credentials from postgres container
-              docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}' \
-                | grep -E '^POSTGRES_(USER|DB|PASSWORD)=' \
-                | sed 's/^POSTGRES_USER=/DB_USER=/; s/^POSTGRES_DB=/DB_NAME=/; s/^POSTGRES_PASSWORD=/DB_PASSWORD=/' \
-                >> "$RECOVERY" || true
+            # App-level secrets from api-blue
+            while IFS= read -r line; do
+              KEY="${line%%=*}"
+              VAL="${line#*=}"
+              case "$KEY" in
+                JWT_SECRET|ENCRYPTION_KEY|CORS_ALLOWED_ORIGINS|BLUE_VERSION|GREEN_VERSION|APNS_*|MINIO_*)
+                  add_key "$KEY" "$VAL"
+                  ;;
+              esac
+            done < <(docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}')
 
-              # REDIS_PASSWORD: parse from REDIS_URL in api-blue
-              # Format: redis://<user>:<password>@<host>:<port>
+            # DB credentials from postgres container
+            while IFS= read -r line; do
+              case "$line" in
+                POSTGRES_USER=*) add_key "DB_USER" "${line#POSTGRES_USER=}" ;;
+                POSTGRES_DB=*) add_key "DB_NAME" "${line#POSTGRES_DB=}" ;;
+                POSTGRES_PASSWORD=*) add_key "DB_PASSWORD" "${line#POSTGRES_PASSWORD=}" ;;
+              esac
+            done < <(docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}')
+
+            # REDIS_PASSWORD from REDIS_URL in api-blue
+            if ! has_key REDIS_PASSWORD; then
               REDIS_URL_RAW=$(docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^REDIS_URL=' | head -1 || true)
               REDIS_URL="${REDIS_URL_RAW#REDIS_URL=}"
-              echo "REDIS_URL found: ${REDIS_URL:+yes (length=${#REDIS_URL})}${REDIS_URL:-no}"
               REDIS_PASS=$(echo "$REDIS_URL" | sed -n 's|^redis://[^:]*:\([^@]*\)@.*|\1|p')
-              echo "REDIS_PASSWORD extracted: ${REDIS_PASS:+yes}${REDIS_PASS:-no}"
-              if [ -n "$REDIS_PASS" ]; then
-                echo "REDIS_PASSWORD=$REDIS_PASS" >> "$RECOVERY"
-              fi
+              add_key "REDIS_PASSWORD" "$REDIS_PASS"
+            fi
 
-              # Deduplicate keeping first occurrence
-              awk -F= '!seen[$1]++' "$RECOVERY" > "$DEPLOY_DIR/.env"
-              rm -f "$RECOVERY"
-              chmod 600 "$DEPLOY_DIR/.env"
-              echo ".env restored with $(wc -l < "$DEPLOY_DIR/.env") entries"
-              echo "Keys recovered: $(cut -d= -f1 < "$DEPLOY_DIR/.env" | tr '\n' ' ')"
+            # Report status
+            echo ".env now has $(wc -l < "$DEPLOY_DIR/.env") entries"
+            MISSING=""
+            for k in $REQUIRED_KEYS; do
+              has_key "$k" || MISSING="$MISSING $k"
+            done
+            if [ -n "$MISSING" ]; then
+              echo "ERROR: Still missing required keys:$MISSING"
+              exit 1
             fi
 
             echo "=== Syncing server/ contents into $DEPLOY_DIR ==="
