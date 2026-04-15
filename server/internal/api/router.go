@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kuurier/server/internal/alerts"
+	"github.com/kuurier/server/internal/api/types"
 	"github.com/kuurier/server/internal/auth"
 	"github.com/kuurier/server/internal/bot"
 	"github.com/kuurier/server/internal/config"
@@ -22,13 +23,9 @@ import (
 	"github.com/kuurier/server/internal/websocket"
 )
 
-// BuildInfo identifies the running binary. Deploy scripts compare this
-// against the SHA they just built to verify the new code is actually live.
-type BuildInfo struct {
-	Version   string `json:"version"`
-	SHA       string `json:"sha"`
-	BuildDate string `json:"built_at"`
-}
+// BuildInfo identifies the running binary. Alias for the typed
+// response so callers can keep using api.BuildInfo{...} as before.
+type BuildInfo = types.VersionResponse
 
 // NewRouter creates and configures the API router.
 // Returns the router and the WebSocket hub (hub must be Run() in a goroutine).

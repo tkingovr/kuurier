@@ -234,67 +234,39 @@ Background: full architecture review lives in the session log; the gaps this pla
 
 ---
 
-## Phase 7 — OpenAPI Codegen
+## Phase 7 — OpenAPI Codegen ✅ tactical step shipped; codegen pipeline deferred
 **Goal:** client-server schema drift becomes a CI failure, not a user-visible crash.
 **Depends on:** nothing (can run anytime after Phase 1).
 **Estimated effort:** 2–3 weeks.
 
-### 7.1 Tactical first: typed response structs
-- [ ] Create `server/internal/api/types/` package.
-- [ ] For the top 5 handlers by API traffic (auth, feed, events, messaging, devices), replace `gin.H{}` with named structs, starting with the highest-drift-risk endpoints.
-- [ ] Example: `type FeedV2Response struct { Items []FeedV2Item \`json:"items"\`; Limit int \`json:"limit"\`; Offset int \`json:"offset"\`; NextOffset int \`json:"next_offset"\` }`.
-- [ ] Keep the same JSON output; this is purely internal.
+### 7.1 Tactical first: typed response structs ✅ (partial)
+- [x] New `server/internal/api/types/` package with `VersionResponse`, `FeedV2Response`, `FeedV2Item`, `PostBody`, `LatLng`, `Media`. Authoritative JSON shapes for the highest-drift-risk endpoints.
+- [x] `api.BuildInfo` is now a type alias for `types.VersionResponse`, so the existing call site keeps working but field names become grep-able.
+- Rest of the handlers still use `gin.H{}` — not a regression, just un-migrated. Next time each handler is touched, replace its return type with a typed struct from this package.
 
-### 7.2 Add OpenAPI annotations
-- [ ] Add `github.com/swaggo/swag` and `github.com/swaggo/gin-swagger`.
-- [ ] Annotate each handler with `@Summary`, `@Param`, `@Success`, `@Router`.
-- [ ] Start with the auth package, then feed, then events.
-- [ ] Run `swag init -g cmd/kuurier-server/main.go -o docs/openapi`.
-
-### 7.3 CI for OpenAPI
-- [ ] Add a `make generate` target that runs `swag init` and also runs the client codegen steps below.
-- [ ] Add a CI step that runs `make generate` and fails if `git diff` is non-empty — meaning someone changed handlers without regenerating.
-
-### 7.4 iOS codegen
-- [ ] Install `CreateAPI` (Swift codegen tool).
-- [ ] Generate Swift structs from `docs/openapi/swagger.json` into `apps/ios/Kuurier/Kuurier/Core/Models/Generated/`.
-- [ ] Replace hand-written models in `Models.swift` one struct at a time, verifying decoding with real production responses.
-
-### 7.5 Rust codegen
-- [ ] Install `openapi-generator-cli`.
-- [ ] Generate Rust structs into `apps/desktop/src-tauri/src/api/generated/`.
-- [ ] Replace hand-written structs in `client.rs` one type at a time.
-
-### 7.6 Web client (if applicable)
-- [ ] If the web app makes API calls, generate TypeScript types the same way.
+### 7.2–7.6 OpenAPI annotations + codegen pipeline — deferred
+- [ ] Adopt `swaggo/swag` for annotations, generate `openapi.json` in CI, generate Swift via `CreateAPI` and Rust via `openapi-generator`. This is real multi-day work (annotate ~30 handler funcs, set up 2 codegen toolchains, replace hand-written client models incrementally). Blocked by nothing — the types package is the scaffolding it needs. Ship when there's focused time for it.
 
 ---
 
-## Phase 8 — Integration Test Harness
+## Phase 8 — Integration Test Harness ✅ (harness + migration test; more tests opportunistic)
 **Goal:** catch cross-layer bugs before they reach production.
 **Depends on:** Phase 2 (need a reliable way to migrate the test DB).
 **Estimated effort:** 1–2 weeks.
 
-### 8.1 Test container setup
-- [ ] Add `github.com/testcontainers/testcontainers-go` and `github.com/testcontainers/testcontainers-go/modules/postgres`.
-- [ ] Create `server/internal/testutil/db.go` with a `NewTestDB(t *testing.T) *pgxpool.Pool` helper that:
-  - Starts a PostGIS container (`postgis/postgis:16-3.4`).
-  - Runs migrations via `migrations.RunMigrations`.
-  - Returns a pool scoped to the test's lifetime.
-- [ ] Add a `TestMain` that reuses the container across tests in a package for speed.
+### 8.1 Test container setup ✅
+- [x] `server/internal/testutil/db.go` exposes `NewTestDB(t)` which starts a PostGIS container (`postgis/postgis:16-3.4`), runs all embedded migrations, and returns a `*pgxpool.Pool` scoped to `t.Cleanup`. Container and pool are cleaned up automatically.
+- [x] Integration tests are gated by `//go:build integration` so `go test ./...` (and the existing CI unit-test job) doesn't try to launch Docker containers.
 
-### 8.2 Core flow tests
-- [ ] Write `server/internal/auth/integration_test.go` covering: register → challenge → verify → token works → token expires correctly.
-- [ ] Write `server/internal/feed/integration_test.go` covering: seed 30 posts with varied topics/locations/urgencies → `GET /feed/v2?type=for_you` → verify ranking order.
-- [ ] Write `server/internal/messaging/integration_test.go` covering: create channel → post message → verify WebSocket broadcast.
+### 8.2 First integration test ✅
+- [x] `server/internal/migrations/migrations_integration_test.go` — confirms Run against an empty DB applies all 14 migrations, the second run is a no-op, and representative tables (`users`, `materialized_feeds`) exist. Covers the exact class of bug that caused the 6-week silent failure.
+- [ ] Auth register-challenge-verify flow, feed v2 seeded-data ranking, and messaging+WebSocket delivery tests — deferred. The harness is in place; writing these is follow-on work.
 
 ### 8.3 CI integration
-- [ ] Add a separate CI job `integration-tests` that runs these. Mark them with `//go:build integration` to keep unit tests fast.
-- [ ] Run on every PR. Allow up to 5 minutes.
+- Current state: the `test-migrations` job already verifies migrations against a fresh PostGIS container using `--migrate-only` (Phase 2.5). The new `//go:build integration` test exercises the same path via the harness. We can add a dedicated job running `go test -tags=integration ./...` when the test set justifies the runtime — not worth a separate job for one test.
 
-### 8.4 Bot integration test
-- [ ] Mock the RSS upstream (use `httptest.Server`) and assert the bot correctly dedups, writes to `posts`, and updates `bot_run_log`.
-- [ ] Same for protest bot with a mocked findaprotest.info response.
+### 8.4 Bot integration test — deferred
+- [ ] Use `httptest.Server` to mock the RSS upstream and drive the news bot end-to-end. Same pattern for protest bot with a mocked findaprotest.info HTML response. Harness is in place; writing these is half a day.
 
 ---
 
