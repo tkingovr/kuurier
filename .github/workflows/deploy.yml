@@ -77,9 +77,9 @@ jobs:
             # Normalize first so later checks don't need to handle unset vs empty.
             PROD_ENV_B64="${PROD_ENV_B64:-}"
             echo "DEBUG: PROD_ENV_B64 length=${#PROD_ENV_B64} DEPLOY_SHA=$DEPLOY_SHA"
-            set +e  # turn off strict exit for the env-check branch so we can see errors
+            echo "DEBUG: before if"
             if [ -n "$PROD_ENV_B64" ]; then
-              set -e
+              echo "DEBUG: entered IF branch"
               # Canonical path: secret is the source of truth. Write
               # atomically so a failed write never leaves .env empty.
               umask 077
@@ -88,6 +88,7 @@ jobs:
               mv "$DEPLOY_DIR/.env.new" "$DEPLOY_DIR/.env"
               echo ".env written from GitHub secret ($(wc -l < "$DEPLOY_DIR/.env") lines)"
             else
+              echo "DEBUG: entered ELSE branch"
               echo "WARNING: PROD_ENV_B64 empty — using legacy container-introspection recovery."
               echo "Add the PRODUCTION_ENV secret per docs/SECRETS.md to switch to the canonical path."
               touch "$DEPLOY_DIR/.env"
@@ -116,8 +117,9 @@ jobs:
               REDIS_PASS=$(echo "$REDIS_URL_LINE" | sed -n 's|^redis://[^:]*:\([^@]*\)@.*|\1|p')
               add_if_missing REDIS_PASSWORD "$REDIS_PASS"
               rm -f "$TMP_ENV" "$TMP_ENV.api" "$TMP_ENV.pg"
-              set -e
+              echo "DEBUG: exiting ELSE branch"
             fi
+            echo "DEBUG: after if/else"
 
             # Verify required keys are present regardless of which path we took.
             for k in DB_PASSWORD REDIS_PASSWORD JWT_SECRET ENCRYPTION_KEY CORS_ALLOWED_ORIGINS; do
