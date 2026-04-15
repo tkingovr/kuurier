@@ -13,6 +13,7 @@ import (
 	"github.com/kuurier/server/internal/api"
 	"github.com/kuurier/server/internal/config"
 	"github.com/kuurier/server/internal/logger"
+	"github.com/kuurier/server/internal/metrics"
 	"github.com/kuurier/server/internal/migrations"
 	"github.com/kuurier/server/internal/storage"
 )
@@ -128,6 +129,22 @@ func main() {
 		}
 	}()
 
+	// Prometheus metrics on a separate internal port (9090). Not
+	// proxied by nginx — scrape it from inside the docker network
+	// (Grafana in-cluster, or the runner during CI).
+	metricsSrv := &http.Server{
+		Addr:              ":9090",
+		Handler:           metricsMux(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Println("Metrics server starting on :9090 (/metrics)")
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("metrics server error: %v", err)
+		}
+	}()
+	defer metricsSrv.Shutdown(context.Background())
+
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -143,4 +160,13 @@ func main() {
 	}
 
 	log.Println("Server exited")
+}
+
+// metricsMux returns an http.ServeMux with /metrics wired to the
+// Prometheus handler. Isolated from the main Gin router so scrapes
+// can't accidentally hit app middleware (auth, rate limit, etc.).
+func metricsMux() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", metrics.Handler())
+	return mux
 }

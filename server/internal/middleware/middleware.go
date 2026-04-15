@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/kuurier/server/internal/config"
+	"github.com/kuurier/server/internal/metrics"
 	"github.com/kuurier/server/internal/storage"
 )
 
@@ -73,6 +75,16 @@ func Logger() gin.HandlerFunc {
 		default:
 			slog.LogAttrs(c.Request.Context(), slog.LevelInfo, "request", toAttrs(attrs)...)
 		}
+
+		// Prometheus: use the gin route template (e.g. "/feed/:id")
+		// not the raw path, so cardinality stays bounded.
+		route := c.FullPath()
+		if route == "" {
+			route = "unknown"
+		}
+		metrics.HTTPDuration.
+			WithLabelValues(method, route, fmt.Sprintf("%dxx", status/100)).
+			Observe(latency.Seconds())
 	}
 }
 

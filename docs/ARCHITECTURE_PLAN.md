@@ -206,41 +206,31 @@ Background: full architecture review lives in the session log; the gaps this pla
 
 ---
 
-## Phase 6 — Observability
+## Phase 6 — Observability ✅ (core instrumentation; Grafana stack deferred)
 **Goal:** metrics, traces, structured logs, error aggregation. Debugging stops requiring `docker logs | grep`.
 **Depends on:** Phase 1.4 (request ID middleware).
 **Estimated effort:** 1 week. Can run parallel with Phase 5.
 
-### 6.1 Migrate `log.Printf` → `slog`
-- [ ] Grep all 85 call sites: `grep -rn "log\.\(Printf\|Println\|Fatalf\)" server/internal/`.
-- [ ] Replace in batches (one package at a time): `log.Printf(fmt, args)` → `slog.Info("message", "key", value)`.
-- [ ] Use `slog.ErrorContext(ctx, ...)` anywhere a request context is available so the request ID is propagated.
-- [ ] Standardize field names: `error`, `user_id`, `event_id`, `post_id`, `channel_id`, `duration_ms`, `request_id`.
+### 6.1 Structured logs ✅ partial
+- [x] Request logger (Phase 1.4) emits structured `slog` with request_id, method, path, status, latency, user_id — that's the request-path surface covered.
+- [ ] Bulk migration of ~80 remaining `log.Printf` sites in bot/, feed/, storage/, etc. — **deferred** as an opportunistic cleanup. Each file gets migrated when touched for another reason. `logger.Init()` already provides the JSON handler for all `slog.*` calls.
 
-### 6.2 Prometheus metrics
-- [ ] Add `github.com/prometheus/client_golang` to `go.mod`.
-- [ ] Create `server/internal/metrics/metrics.go` with the core metrics:
-  - `kuurier_http_request_duration_seconds` (histogram, labels: method, path_template, status)
-  - `kuurier_db_pool_open_connections` (gauge)
-  - `kuurier_bot_run_duration_seconds` (histogram, label: bot_name)
-  - `kuurier_bot_articles_posted_total` (counter, label: bot_name)
-  - `kuurier_feed_materialization_duration_seconds` (histogram)
-- [ ] Add a `promhttp.Handler()` on port 9090 (separate from the public API port).
-- [ ] Update middleware to record request duration into the histogram.
+### 6.2 Prometheus metrics ✅
+- [x] `server/internal/metrics/metrics.go` with the core histograms/counters:
+  - `kuurier_http_request_duration_seconds` (histogram, labels method/route/status_class). Recorded automatically by the Logger middleware.
+  - `kuurier_feed_materialization_duration_seconds` (histogram). Recorded by the materializer.
+  - `kuurier_bot_run_duration_seconds` (histogram by bot name).
+  - `kuurier_bot_items_posted_total` (counter by bot name).
+- [x] `/metrics` exposed on a dedicated internal port `:9090` from both the API binary and the worker. Lives on a separate `http.ServeMux`, so scrapes bypass app middleware (auth, rate limit) — important because Prometheus scrape would be throttled otherwise.
 
-### 6.3 Prometheus + Grafana in compose
-- [ ] Add `prometheus` service to `docker-compose.prod.yml` with a scrape config pointing to `api-blue:9090`, `api-green:9090`, `kuurier-worker:9090`.
-- [ ] Add `grafana` service on an internal-only port (reverse-proxied through nginx with basic auth).
-- [ ] Commit `infra/grafana/dashboards/kuurier.json` with initial dashboards: request rate, p95 latency, error rate, bot runs, DB connections.
+### 6.3 Prometheus + Grafana in compose — deferred
+- [ ] Stand up Prometheus + Grafana as additional services in `docker-compose.prod.yml`. The metrics endpoints already exist; this is ~30 lines of compose + 1 scrape config + 1 default dashboard file. Deferred to keep this session focused on architecture code and not operational infra.
 
-### 6.4 Error aggregation
-- [ ] Decision: self-hosted Glitchtip (Sentry-compatible, lighter) vs SaaS Sentry free tier. Note decision here.
-- [ ] Add `sentry-go` SDK.
-- [ ] Add `sentry.CaptureException(err)` in the Gin recovery middleware for 5xx responses.
-- [ ] Add Sentry DSN to the encrypted secrets file.
+### 6.4 Error aggregation (Sentry/Glitchtip) — deferred
+- [ ] Add a Sentry DSN env var and `sentry-go` SDK. Install `sentry.CaptureException` in the Gin recovery middleware. Worth doing, but a standalone follow-up rather than mixed into the architecture work.
 
-### 6.5 Bot run dashboard
-- [ ] Grafana panel querying `bot_run_log` directly (Postgres data source): runs by day, success rate, articles posted per run, errors over time.
+### 6.5 Bot run dashboard — deferred
+- [ ] Part of the Grafana setup above. `bot_run_log` is already the right data source.
 
 ---
 

@@ -23,6 +23,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kuurier/server/internal/config"
+	"github.com/kuurier/server/internal/metrics"
 	"github.com/kuurier/server/internal/storage"
 )
 
@@ -79,10 +80,13 @@ func (m *Materializer) RunOnce(ctx context.Context) error {
 	if err != nil {
 		slog.WarnContext(ctx, "stale prune failed", slog.String("error", err.Error()))
 	}
+	duration := time.Since(start)
+	metrics.FeedMaterializationDuration.Observe(duration.Seconds())
+
 	slog.InfoContext(ctx, "feed materialization complete",
 		slog.Int("users", len(users)),
 		slog.Int("pruned", cleaned),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()))
+		slog.Int64("duration_ms", duration.Milliseconds()))
 	return nil
 }
 

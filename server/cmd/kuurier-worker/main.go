@@ -22,6 +22,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
@@ -30,6 +31,7 @@ import (
 	"github.com/kuurier/server/internal/config"
 	"github.com/kuurier/server/internal/feed"
 	"github.com/kuurier/server/internal/logger"
+	"github.com/kuurier/server/internal/metrics"
 	"github.com/kuurier/server/internal/migrations"
 	"github.com/kuurier/server/internal/storage"
 )
@@ -84,6 +86,21 @@ func main() {
 	protestBot.Start()
 	defer protestBot.Stop()
 
+	// Prometheus metrics on :9090 (/metrics). Scraped from inside
+	// the docker network; not externally exposed.
+	metricsSrv := &http.Server{
+		Addr:              ":9090",
+		Handler:           metricsMux(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Println("Worker metrics server starting on :9090 (/metrics)")
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("metrics server error: %v", err)
+		}
+	}()
+	defer metricsSrv.Shutdown(context.Background())
+
 	// Heartbeat loop: write every 30s so the API can check worker health.
 	go runHeartbeat(ctx, redis)
 
@@ -108,6 +125,12 @@ func main() {
 	log.Println("Worker ready")
 	<-ctx.Done()
 	log.Println("Worker shutting down")
+}
+
+func metricsMux() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", metrics.Handler())
+	return mux
 }
 
 func runMaterializer(ctx context.Context, m *feed.Materializer) {
