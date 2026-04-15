@@ -59,7 +59,7 @@ jobs:
           DATABASE_URL: postgres://kuurier_test:test_password@localhost:5432/kuurier_test?sslmode=disable
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test_jwt_secret_for_ci_testing
-          ENCRYPTION_KEY: 12345678901234567890123456789012
+          ENCRYPTION_KEY: "12345678901234567890123456789012"
           ENVIRONMENT: test
         run: go test -v -race -coverprofile=coverage.out ./...
 
@@ -115,7 +115,7 @@ jobs:
           DATABASE_URL: postgres://kuurier_test:test_password@localhost:5432/kuurier_test?sslmode=disable
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test_jwt_secret_for_ci_testing_must_be_32
-          ENCRYPTION_KEY: 12345678901234567890123456789012
+          ENCRYPTION_KEY: "12345678901234567890123456789012"
           ENVIRONMENT: test
           CORS_ALLOWED_ORIGINS: http://localhost
         run: go run ./cmd/kuurier-server --migrate-only
@@ -126,7 +126,7 @@ jobs:
           DATABASE_URL: postgres://kuurier_test:test_password@localhost:5432/kuurier_test?sslmode=disable
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test_jwt_secret_for_ci_testing_must_be_32
-          ENCRYPTION_KEY: 12345678901234567890123456789012
+          ENCRYPTION_KEY: "12345678901234567890123456789012"
           ENVIRONMENT: test
           CORS_ALLOWED_ORIGINS: http://localhost
         run: |
