@@ -6,6 +6,7 @@ on:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Explore server
         uses: appleboy/ssh-action@v1.0.3
