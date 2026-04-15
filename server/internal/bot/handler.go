@@ -1,7 +1,6 @@
 package bot
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -10,49 +9,58 @@ import (
 )
 
 // Handler provides HTTP endpoints for monitoring and controlling bots.
+// The handler lives in the API process and does not hold bot instances
+// directly — triggers are forwarded to the worker process via Redis.
 type Handler struct {
-	db         *storage.Postgres
-	newsBot    *NewsBot
-	protestBot *ProtestBot
+	db    *storage.Postgres
+	redis *storage.Redis
 }
 
 // NewHandler creates a new bot handler.
-func NewHandler(db *storage.Postgres, newsBot *NewsBot, protestBot *ProtestBot) *Handler {
-	return &Handler{db: db, newsBot: newsBot, protestBot: protestBot}
+func NewHandler(db *storage.Postgres, redis *storage.Redis) *Handler {
+	return &Handler{db: db, redis: redis}
 }
 
-// TriggerRun manually triggers a news aggregation run (admin only).
+// TriggerRun enqueues a news-aggregation request (admin only).
+// The worker process picks it up and runs the bot.
 func (h *Handler) TriggerRun(c *gin.Context) {
 	if !h.checkAdmin(c) {
 		return
 	}
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if err := h.newsBot.RunOnce(ctx); err != nil {
-			_ = err
-		}
-	}()
-
-	c.JSON(http.StatusAccepted, gin.H{"message": "news aggregation run triggered"})
+	if err := EnqueueTrigger(c.Request.Context(), h.redis, TriggerQueueNews); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue trigger"})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"message": "news aggregation run queued"})
 }
 
-// TriggerProtestScrape manually triggers a protest scrape run (admin only).
+// TriggerProtestScrape enqueues a protest scrape request (admin only).
 func (h *Handler) TriggerProtestScrape(c *gin.Context) {
 	if !h.checkAdmin(c) {
 		return
 	}
+	if err := EnqueueTrigger(c.Request.Context(), h.redis, TriggerQueueProtest); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue trigger"})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"message": "protest scrape run queued"})
+}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if err := h.protestBot.RunOnce(ctx); err != nil {
-			_ = err
-		}
-	}()
-
-	c.JSON(http.StatusAccepted, gin.H{"message": "protest scrape run triggered"})
+// WorkerStatus returns the time since the worker last wrote its
+// heartbeat key (admin only). Useful for diagnosing a stuck worker.
+func (h *Handler) WorkerStatus(c *gin.Context) {
+	if !h.checkAdmin(c) {
+		return
+	}
+	val, err := h.redis.Client().Get(c.Request.Context(), WorkerHeartbeatKey).Result()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"alive": false, "reason": "no recent heartbeat"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"alive":     true,
+		"last_seen": val,
+	})
 }
 
 func (h *Handler) checkAdmin(c *gin.Context) bool {

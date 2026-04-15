@@ -94,41 +94,39 @@ Background: full architecture review lives in the session log; the gaps this pla
 
 ---
 
-## Phase 3 — Extract the Worker Process
+## Phase 3 — Extract the Worker Process ✅
 **Goal:** bots stop running inside the API container. One worker, not two.
 **Depends on:** Phase 2 (so the worker can run its own migrations on startup without conflict).
 **Estimated effort:** 1–2 weeks.
 
-### 3.1 New binary
-- [ ] Create `server/cmd/kuurier-worker/main.go` that initializes DB + Redis (same `config.Load()` path), runs migrations, and starts `NewsBot` + `ProtestBot`.
-- [ ] No HTTP server, no Gin router, no WebSocket hub.
-- [ ] Add a minimal health check: a goroutine that writes the current timestamp to a known Redis key every 30 seconds, for the API to monitor worker liveness.
+### 3.1 New binary ✅
+- [x] `server/cmd/kuurier-worker/main.go` loads config, runs migrations (same advisory-lock-guarded `migrations.Run` as the API — whoever wins the lock applies, the other observes), starts `NewsBot` + `ProtestBot` schedulers, consumes Redis-backed admin triggers, runs a 30-second heartbeat loop.
+- [x] No HTTP server, no Gin router, no WebSocket hub — just goroutines.
 
-### 3.2 Remove bots from the API process
-- [ ] Delete `newsBot := bot.NewNewsBot(db)`, `newsBot.Start()`, `defer newsBot.Stop()`, and same for `protestBot`, from `cmd/kuurier-server/main.go`.
-- [ ] Delete `api.SetNewsBot()` and `api.SetProtestBot()` calls.
-- [ ] Delete the `activeNewsBot`/`activeProtestBot` globals from `router.go` and the `SetNewsBot`/`SetProtestBot` functions.
+### 3.2 Remove bots from the API process ✅
+- [x] Deleted `newsBot := bot.NewNewsBot(db)` and friends from `cmd/kuurier-server/main.go`.
+- [x] Deleted `api.SetNewsBot()` / `api.SetProtestBot()` and the package-level globals; `bot.NewHandler` now takes `(db, redis)` instead of bot instances.
+- [x] Dropped the unused `bot` import from the API binary.
 
-### 3.3 Admin bot-trigger endpoints
-- [ ] Decision: simplest path is a Redis-backed job queue. Pick one of:
-  - (a) Redis pub/sub: API publishes `kuurier:bot:trigger:news`, worker subscribes and runs `RunOnce`.
-  - (b) Redis list: API `LPUSH`es, worker `BRPOP`s.
-- [ ] Implement the chosen approach.
-- [ ] Update `bot.Handler.TriggerRun` and `TriggerProtestScrape` to enqueue jobs instead of calling the bot directly.
-- [ ] The admin handler can still live in the API process.
+### 3.3 Admin bot-trigger endpoints ✅
+- [x] Chose Redis lists (`BLPOP`) — clean blocking read without busy-polling, no subscriber-lost-while-disconnected issue.
+- [x] `server/internal/bot/trigger.go` has `EnqueueTrigger`, `RunTriggerConsumer`, `RecordHeartbeat`; queue names versioned (`kuurier:bot:trigger:news:v1`).
+- [x] `TriggerRun` / `TriggerProtestScrape` now enqueue instead of calling `RunOnce` directly.
+- [x] New `GET /admin/bot/worker-status` returns the last worker heartbeat so admins can spot a stuck worker.
 
-### 3.4 Docker + compose
-- [ ] Add a `kuurier-worker` service to `docker-compose.prod.yml` using the same image tag as the API but a different `command`.
-- [ ] Set `replicas: 1` or use a service with no replication by design.
-- [ ] Set `restart: unless-stopped`.
+### 3.4 Docker + compose ✅
+- [x] Added `worker` service to `docker-compose.prod.yml` — same image, `command: ["./kuurier-worker"]`, healthcheck disabled (no HTTP listener).
+- [x] Single instance, `restart: unless-stopped`, shares the same env block as the API.
+- [x] Deploy now force-recreates `api-blue api-green worker` together.
 
-### 3.5 Build pipeline
-- [ ] Update `Dockerfile` to build both binaries. Options: (a) multi-target build with `--target server` / `--target worker`, or (b) a single image that contains both binaries and selects via `CMD`.
-- [ ] Push both images (or one image with two entrypoints) to the registry with the same SHA tag.
+### 3.5 Build pipeline ✅
+- [x] Dockerfile builds both `kuurier-server` and `kuurier-worker` with identical ldflags so `/version` reports the same SHA across the cluster.
+- [x] Single image contains both binaries — compose picks the entrypoint via `command:`. Simpler than two image tags.
 
-### 3.6 Observability for the worker
-- [ ] Worker logs go to `docker logs kuurier-worker` — confirm it's captured in whatever log aggregation we stand up in Phase 6.
-- [ ] The shared `bot_run_log` table already tracks worker activity.
+### 3.6 Observability for the worker ✅
+- [x] Worker logs go to `docker logs kuurier-worker` (structured slog from the same `logger.Init`).
+- [x] Heartbeat key `kuurier:worker:heartbeat:v1` with 90s TTL lets the API's `/admin/bot/worker-status` detect a dead worker.
+- [x] `bot_run_log` already tracked all bot runs; that continues to work unchanged since the SQL is identical.
 
 ---
 

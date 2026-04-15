@@ -127,8 +127,8 @@ jobs:
               --build-arg BUILD_DATE="$BUILD_DATE" \
               -t kuurier-server:latest .
 
-            echo "=== Restarting API containers ==="
-            docker compose -f docker-compose.prod.yml up -d --force-recreate api-blue api-green
+            echo "=== Restarting API + worker containers ==="
+            docker compose -f docker-compose.prod.yml up -d --force-recreate api-blue api-green worker
 
             echo "=== Waiting for health ==="
             sleep 15
@@ -168,6 +168,9 @@ jobs:
               echo ""
               echo "=== Last 40 lines from kuurier-api-green ==="
               docker logs --tail 40 kuurier-api-green 2>&1 || true
+              echo ""
+              echo "=== Last 40 lines from kuurier-worker ==="
+              docker logs --tail 40 kuurier-worker 2>&1 || true
               exit 1
             fi
 

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/kuurier/server/internal/api"
-	"github.com/kuurier/server/internal/bot"
 	"github.com/kuurier/server/internal/config"
 	"github.com/kuurier/server/internal/logger"
 	"github.com/kuurier/server/internal/migrations"
@@ -109,17 +108,8 @@ func main() {
 	go wsHub.Run()
 	defer wsHub.Stop()
 
-	// Start news aggregation bot (posts twice daily at 8 AM and 6 PM UTC)
-	newsBot := bot.NewNewsBot(db)
-	api.SetNewsBot(newsBot)
-	newsBot.Start()
-	defer newsBot.Stop()
-
-	// Start protest scraper bot (scrapes findaprotest.info twice daily at 7 AM and 5 PM UTC)
-	protestBot := bot.NewProtestBot(db)
-	api.SetProtestBot(protestBot)
-	protestBot.Start()
-	defer protestBot.Stop()
+	// Bots run in the kuurier-worker process, not here. Admin-triggered
+	// runs are forwarded via Redis (see internal/bot/trigger.go).
 
 	// Create server
 	srv := &http.Server{

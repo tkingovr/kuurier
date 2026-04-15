@@ -131,6 +131,40 @@ services:
     networks:
       - kuurier-net
 
+  # ============================================
+  # WORKER (bots + scheduled jobs, no HTTP)
+  # ============================================
+  # Runs the same image as api-blue/green but with kuurier-worker as
+  # the entrypoint. Single instance, in-place restarts (no blue/green
+  # because the worker isn't serving traffic). Responsibilities:
+  # news aggregation, protest scraping, admin-trigger consumer, and
+  # heartbeat writes.
+
+  worker:
+    image: kuurier-server:latest
+    container_name: kuurier-worker
+    restart: unless-stopped
+    command: ["./kuurier-worker"]
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgres://${DB_USER:-kuurier}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-kuurier}?sslmode=disable
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY required}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Worker has no HTTP listener, so the image-level wget healthcheck
+    # would fail. Disable it explicitly so docker doesn't mark the
+    # worker unhealthy.
+    healthcheck:
+      disable: true
+    networks:
+      - kuurier-net
+
 volumes:
   postgres_data:
   redis_data:
