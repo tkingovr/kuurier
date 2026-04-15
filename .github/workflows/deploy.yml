@@ -32,20 +32,26 @@ jobs:
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+          DEPLOY_BRANCH: ${{ github.ref_name }}
+          DEPLOY_REPO: ${{ github.repository }}
+          DEPLOY_BUILD_DATE: ${{ github.event.repository.updated_at }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 2222
           script_stop: true
+          envs: DEPLOY_SHA,DEPLOY_BRANCH,DEPLOY_REPO,DEPLOY_BUILD_DATE
           script: |
             set -e
 
             DEPLOY_DIR="$HOME/kuurier"
             STAGE_DIR=$(mktemp -d -t kuurier-deploy-XXXXXX)
 
-            echo "=== Cloning latest code into $STAGE_DIR ==="
-            git clone --depth 1 --branch ${{ github.ref_name }} https://github.com/${{ github.repository }}.git "$STAGE_DIR/repo"
+            echo "=== Cloning latest code into $STAGE_DIR (sha=$DEPLOY_SHA) ==="
+            git clone --depth 1 --branch "$DEPLOY_BRANCH" "https://github.com/${DEPLOY_REPO}.git" "$STAGE_DIR/repo"
 
             echo "=== Ensuring .env has all required keys ==="
             touch "$DEPLOY_DIR/.env"
@@ -110,17 +116,41 @@ jobs:
               fi
             done
 
-            echo "=== Building image ==="
-            docker build --no-cache -t kuurier-server:latest .
+            echo "=== Building image (sha=$DEPLOY_SHA) ==="
+            BUILD_DATE="${DEPLOY_BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+            docker build --no-cache \
+              --build-arg GIT_SHA="$DEPLOY_SHA" \
+              --build-arg VERSION="$DEPLOY_BRANCH" \
+              --build-arg BUILD_DATE="$BUILD_DATE" \
+              -t kuurier-server:latest .
 
             echo "=== Restarting API containers ==="
             docker compose -f docker-compose.prod.yml up -d --force-recreate api-blue api-green
 
             echo "=== Waiting for health ==="
             sleep 15
-            curl -sf http://localhost/health
+            curl -sf http://localhost/health > /dev/null
 
-            echo "=== Deployment successful ==="
+            echo "=== Verifying deployed SHA matches $DEPLOY_SHA ==="
+            # Retry up to 10 times (20s total) in case the new container is still warming up
+            ATTEMPT=0
+            RUNNING_SHA=""
+            while [ $ATTEMPT -lt 10 ]; do
+              RUNNING_SHA=$(curl -sf http://localhost/api/v1/version | sed -n 's/.*"sha":"\([^"]*\)".*/\1/p' || true)
+              if [ "$RUNNING_SHA" = "$DEPLOY_SHA" ]; then
+                break
+              fi
+              ATTEMPT=$((ATTEMPT + 1))
+              sleep 2
+            done
+
+            if [ "$RUNNING_SHA" != "$DEPLOY_SHA" ]; then
+              echo "ERROR: deployed SHA mismatch. Expected=$DEPLOY_SHA Running=$RUNNING_SHA"
+              echo "The new containers may not have picked up the rebuilt image."
+              exit 1
+            fi
+
+            echo "=== Deployment successful: running sha=$RUNNING_SHA ==="
 
       - name: Notify on failure
         if: failure()

@@ -23,6 +23,14 @@ import (
 	"github.com/kuurier/server/internal/websocket"
 )
 
+// BuildInfo identifies the running binary. Deploy scripts compare this
+// against the SHA they just built to verify the new code is actually live.
+type BuildInfo struct {
+	Version   string `json:"version"`
+	SHA       string `json:"sha"`
+	BuildDate string `json:"built_at"`
+}
+
 // NewRouter creates and configures the API router
 // Returns the router and the WebSocket hub (hub must be Run() in a goroutine)
 // SetNewsBot sets the news bot instance for admin API endpoints.
@@ -38,7 +46,7 @@ func SetProtestBot(b *bot.ProtestBot) {
 	activeProtestBot = b
 }
 
-func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, minio *storage.MinIO, apns *storage.APNs) (*gin.Engine, *websocket.Hub) {
+func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, minio *storage.MinIO, apns *storage.APNs, build BuildInfo) (*gin.Engine, *websocket.Hub) {
 	// Set Gin mode based on environment
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -101,6 +109,12 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 			authRoutes.POST("/challenge", authHandler.Challenge)
 			authRoutes.POST("/verify", authHandler.Verify)
 		}
+
+		// Build identity (public) — used by deploy scripts to verify
+		// the running binary matches the image that was just built.
+		v1.GET("/version", func(c *gin.Context) {
+			c.JSON(http.StatusOK, build)
+		})
 
 		// Invite validation (public - needed before registration)
 		v1.GET("/invites/validate/:code", invitesHandler.ValidateInvite)

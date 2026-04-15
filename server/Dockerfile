@@ -17,9 +17,16 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build with optimizations
+# Build args for version identity. Default to "unknown" when built locally
+# so the /version endpoint still works for development.
+ARG GIT_SHA=unknown
+ARG VERSION=dev
+ARG BUILD_DATE=unknown
+
+# Build with optimizations. Version info is injected into the binary
+# via ldflags so /version can report what's running.
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-w -s -X main.Version=$(date +%Y%m%d)" \
+    -ldflags="-w -s -X main.Version=${VERSION} -X main.GitSHA=${GIT_SHA} -X main.BuildDate=${BUILD_DATE}" \
     -o kuurier-server \
     ./cmd/kuurier-server
 

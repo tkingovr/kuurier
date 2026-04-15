@@ -16,12 +16,27 @@ import (
 	"github.com/kuurier/server/internal/storage"
 )
 
+// Build-time variables populated via -ldflags="-X main.Version=... -X main.GitSHA=... -X main.BuildDate=..."
+var (
+	Version   = "dev"
+	GitSHA    = "unknown"
+	BuildDate = "unknown"
+)
+
+// BuildInfo exposes the build-time identity so deploy scripts can verify
+// the running binary matches what was just pushed.
+func BuildInfo() (version, sha, buildDate string) {
+	return Version, GitSHA, BuildDate
+}
+
 func main() {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	log.Printf("Kuurier server starting — version=%s sha=%s built_at=%s", Version, GitSHA, BuildDate)
 
 	// Initialize structured logging (JSON in production, text in dev)
 	logger.Init(cfg.Environment)
@@ -62,7 +77,11 @@ func main() {
 	}
 
 	// Create router and WebSocket hub
-	router, wsHub := api.NewRouter(cfg, db, redis, minio, apns)
+	router, wsHub := api.NewRouter(cfg, db, redis, minio, apns, api.BuildInfo{
+		Version:   Version,
+		SHA:       GitSHA,
+		BuildDate: BuildDate,
+	})
 
 	// Start WebSocket hub
 	go wsHub.Run()

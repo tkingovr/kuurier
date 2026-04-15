@@ -11,12 +11,12 @@ Background: full architecture review lives in the session log; the gaps this pla
 **Depends on:** nothing.
 **Estimated effort:** 1–2 weeks.
 
-### 1.1 Deploy verification (`/version` endpoint + SHA check)
-- [ ] Add `Version` and `GitSHA` vars to `server/cmd/kuurier-server/main.go`, populated via `-ldflags="-X main.Version=... -X main.GitSHA=..."`.
-- [ ] Update `server/Dockerfile` to pass `GIT_SHA` as a build arg and into the ldflags.
-- [ ] Update `.github/workflows/deploy.yml` to pass `GIT_SHA=${{ github.sha }}` to `docker build`.
-- [ ] Add `GET /api/v1/version` handler returning `{"version": "...", "sha": "...", "built_at": "..."}`. Public, no auth.
-- [ ] Update deploy script's health check to call `/version` and assert the SHA matches the expected value; fail the deploy if it doesn't.
+### 1.1 Deploy verification (`/version` endpoint + SHA check) ✅
+- [x] Add `Version` and `GitSHA` vars to `server/cmd/kuurier-server/main.go`, populated via `-ldflags="-X main.Version=... -X main.GitSHA=..."`.
+- [x] Update `server/Dockerfile` to pass `GIT_SHA` as a build arg and into the ldflags.
+- [x] Update `.github/workflows/deploy.yml` to pass `GIT_SHA=${{ github.sha }}` to `docker build`.
+- [x] Add `GET /api/v1/version` handler returning `{"version": "...", "sha": "...", "built_at": "..."}`. Public, no auth.
+- [x] Update deploy script's health check to call `/version` and assert the SHA matches the expected value; fail the deploy if it doesn't.
 
 ### 1.2 Wire `scripts/migrate.sh` into every deploy
 - [ ] Read `server/scripts/migrate.sh` and confirm it uses `schema_migrations` tracking table.
