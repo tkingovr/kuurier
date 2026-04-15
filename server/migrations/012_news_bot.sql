@@ -2,11 +2,12 @@
 -- Creates a dedicated system user for the news bot and a table to track posted articles
 
 -- Create the news bot system user with a well-known ID
--- Uses a zeroed public key (not a real Ed25519 key, so no one can auth as this user)
+-- Uses a sentinel public key (not a real Ed25519 key, so no one can auth as this user).
+-- Must differ from the bootstrap user's zeroed key to avoid public_key UNIQUE collision.
 INSERT INTO users (id, public_key, created_at, trust_score, is_verified, display_name, is_admin)
 VALUES (
     '00000000-0000-0000-0000-000000000001',
-    decode('0000000000000000000000000000000000000000000000000000000000000000', 'hex'),
+    decode('0000000000000000000000000000000000000000000000000000000000000001', 'hex'),
     NOW(),
     100,
     true,

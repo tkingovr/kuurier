@@ -738,11 +738,12 @@ VALUES (
 -- BOT SYSTEM (News + Protest Scrapers)
 -- ============================================================================
 
--- News bot system user (well-known ID, cannot authenticate — zeroed public key)
+-- News bot system user (well-known ID, cannot authenticate — sentinel public key)
+-- Must differ from the bootstrap user's zero key to avoid UNIQUE collision.
 INSERT INTO users (id, public_key, created_at, trust_score, is_verified, display_name, is_admin)
 VALUES (
     '00000000-0000-0000-0000-000000000001',
-    decode('0000000000000000000000000000000000000000000000000000000000000000', 'hex'),
+    decode('0000000000000000000000000000000000000000000000000000000000000001', 'hex'),
     NOW(),
     100,
     true,
