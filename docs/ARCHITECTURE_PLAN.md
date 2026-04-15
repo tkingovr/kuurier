@@ -22,7 +22,7 @@ Background: full architecture review lives in the session log; the gaps this pla
 - [x] Read `server/scripts/migrate.sh` and confirm it uses `schema_migrations` tracking table.
 - [x] In `.github/workflows/deploy.yml`, replace the current hardcoded `for migration in migrations/010_*.sql ...` loop with tracked-migration logic executed via `docker exec kuurier-postgres psql`.
 - [x] Backfill inlined into the deploy: if `schema_migrations` is empty but `users` table exists (existing prod DB), mark all existing numbered migrations as already-applied automatically. No separate one-shot SQL file needed.
-- [ ] Verify the deploy runs twice in a row cleanly (second run: bootstrap skipped, no pending migrations). Will verify on next push.
+- [x] Verified: second consecutive deploy shows `No pending migrations` with no bootstrap firing. Idempotent.
 
 ### 1.3 Bot panic recovery
 - [ ] Wrap the body of `scheduleLoop()` in `server/internal/bot/newsbot.go:66` with `defer recover()` that logs the panic and restarts the loop after a 30-second backoff.
