@@ -59,7 +59,9 @@ jobs:
             cd "$DEPLOY_DIR"
 
             echo "=== Applying pending migrations ==="
-            for migration in migrations/012_*.sql migrations/013_*.sql; do
+            # The DB was initialized 6+ weeks ago with an older complete_schema
+            # that did not include 010-013. All of these are idempotent.
+            for migration in migrations/010_*.sql migrations/011_*.sql migrations/012_*.sql migrations/013_*.sql; do
               if [ -f "$migration" ]; then
                 echo "Applying $migration"
                 docker exec -i kuurier-postgres psql -U "${DB_USER:-kuurier}" -d "${DB_NAME:-kuurier}" -v ON_ERROR_STOP=1 < "$migration"
