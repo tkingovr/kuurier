@@ -135,8 +135,15 @@ jobs:
             # Retry up to 10 times (20s total) in case the new container is still warming up
             ATTEMPT=0
             RUNNING_SHA=""
+            VERSION_BODY=""
             while [ $ATTEMPT -lt 10 ]; do
-              RUNNING_SHA=$(curl -sf http://localhost/api/v1/version | sed -n 's/.*"sha":"\([^"]*\)".*/\1/p' || true)
+              # Try via nginx (public path) first, fall back to direct container access
+              VERSION_BODY=$(curl -s -L http://localhost/api/v1/version 2>&1 || true)
+              if [ -z "$VERSION_BODY" ] || echo "$VERSION_BODY" | grep -q "<html"; then
+                # nginx may strip /api or route to a different service; try direct
+                VERSION_BODY=$(docker exec kuurier-api-blue wget -qO- http://localhost:8080/api/v1/version 2>&1 || true)
+              fi
+              RUNNING_SHA=$(echo "$VERSION_BODY" | sed -n 's/.*"sha":"\([^"]*\)".*/\1/p')
               if [ "$RUNNING_SHA" = "$DEPLOY_SHA" ]; then
                 break
               fi
@@ -145,8 +152,10 @@ jobs:
             done
 
             if [ "$RUNNING_SHA" != "$DEPLOY_SHA" ]; then
-              echo "ERROR: deployed SHA mismatch. Expected=$DEPLOY_SHA Running=$RUNNING_SHA"
-              echo "The new containers may not have picked up the rebuilt image."
+              echo "ERROR: deployed SHA mismatch"
+              echo "  Expected: $DEPLOY_SHA"
+              echo "  Running:  $RUNNING_SHA"
+              echo "  Response body: $VERSION_BODY"
               exit 1
             fi
 
