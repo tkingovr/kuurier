@@ -37,34 +37,46 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 2222
+          script_stop: true
           script: |
-            cd /opt/kuurier/server
+            set -euo pipefail
 
-            # Pull latest code
-            git fetch origin
-            git reset --hard origin/${{ github.ref_name }}
+            DEPLOY_DIR="$HOME/kuurier"
+            STAGE_DIR="$(mktemp -d -t kuurier-deploy-XXXXXX)"
+            trap 'rm -rf "$STAGE_DIR"' EXIT
 
-            # Run pending migrations against the database
+            echo "=== Cloning latest code into $STAGE_DIR ==="
+            git clone --depth 1 --branch "${{ github.ref_name }}" https://github.com/${{ github.repository }}.git "$STAGE_DIR/repo"
+
+            echo "=== Syncing server/ contents into $DEPLOY_DIR ==="
+            # Preserve runtime-only dirs that aren't in the repo (certs, webapp-build, certbot-webroot)
+            rsync -a --delete \
+              --exclude='certs/' \
+              --exclude='certbot-webroot/' \
+              --exclude='webapp-build/' \
+              "$STAGE_DIR/repo/server/" "$DEPLOY_DIR/"
+
+            cd "$DEPLOY_DIR"
+
+            echo "=== Applying pending migrations ==="
             for migration in migrations/012_*.sql migrations/013_*.sql; do
               if [ -f "$migration" ]; then
-                echo "Applying migration: $migration"
-                docker exec -i kuurier-postgres psql -U "${DB_USER:-kuurier}" -d "${DB_NAME:-kuurier}" < "$migration" 2>&1 || true
+                echo "Applying $migration"
+                docker exec -i kuurier-postgres psql -U "${DB_USER:-kuurier}" -d "${DB_NAME:-kuurier}" -v ON_ERROR_STOP=1 < "$migration"
               fi
             done
 
-            # Rebuild image without cache to ensure latest code is used
+            echo "=== Building image ==="
             docker build --no-cache -t kuurier-server:latest .
 
-            # Recreate API containers with new image (keep DB and Redis running)
+            echo "=== Restarting API containers ==="
             docker compose -f docker-compose.prod.yml up -d --force-recreate api-blue api-green
 
-            # Wait for services to be healthy
+            echo "=== Waiting for health ==="
             sleep 15
+            curl -sf http://localhost/health
 
-            # Verify health
-            curl -sf http://localhost/health || exit 1
-
-            echo "Deployment successful!"
+            echo "=== Deployment successful ==="
 
       - name: Notify on failure
         if: failure()
