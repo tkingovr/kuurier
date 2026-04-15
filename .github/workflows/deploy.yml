@@ -156,6 +156,15 @@ jobs:
               echo "  Expected: $DEPLOY_SHA"
               echo "  Running:  $RUNNING_SHA"
               echo "  Response body: $VERSION_BODY"
+              echo ""
+              echo "=== Container status ==="
+              docker ps --filter name=kuurier-api --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+              echo ""
+              echo "=== Last 40 lines from kuurier-api-blue ==="
+              docker logs --tail 40 kuurier-api-blue 2>&1 || true
+              echo ""
+              echo "=== Last 40 lines from kuurier-api-green ==="
+              docker logs --tail 40 kuurier-api-green 2>&1 || true
               exit 1
             fi
 
