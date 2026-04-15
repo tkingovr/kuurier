@@ -231,6 +231,22 @@ func (h *Handler) GetFeedV2(c *gin.Context) {
 		return
 	}
 
+	// Materialized path: the "for_you" feed is precomputed by the
+	// worker every few minutes. Serve from materialized_feeds when
+	// fresh results exist — an indexed range scan instead of a
+	// 1200-row fetch + Go-side ranking per request.
+	//
+	// Crisis, local, and following feeds stay on the live path: they
+	// depend on request-time signals (user location, urgency filter)
+	// or are small enough that materialization buys little.
+	if feedType == FeedTypeForYou && h.cfg.FeedMaterialized {
+		if served := h.serveMaterialized(c, userID, feedType, limit, offset); served {
+			return
+		}
+		// Otherwise fall through to the live path below. The next
+		// materialization tick will populate the cache for this user.
+	}
+
 	subscriptions, topicNames, err := h.getUserSubscriptions(ctx, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load subscriptions"})

@@ -49,6 +49,9 @@ type Config struct {
 	APNsTeamID     string
 	APNsBundleID   string
 	APNsProduction bool
+
+	// Feature flags
+	FeedMaterialized bool // Serve the for_you feed from materialized_feeds when available
 }
 
 // Load reads configuration from environment variables
@@ -81,6 +84,9 @@ func Load() (*Config, error) {
 		APNsTeamID:     getEnv("APNS_TEAM_ID", ""),
 		APNsBundleID:   getEnv("APNS_BUNDLE_ID", "com.kuurier.app"),
 		APNsProduction: getEnv("APNS_PRODUCTION", "false") == "true",
+
+		// Feature flags. Default off until Phase 5 rollout is verified.
+		FeedMaterialized: getEnv("FEED_MATERIALIZED", "false") == "true",
 	}
 
 	// JWT secret is required in production

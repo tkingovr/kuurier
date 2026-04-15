@@ -159,7 +159,7 @@ Background: full architecture review lives in the session log; the gaps this pla
 
 ---
 
-## Phase 5 — Feed Materialization
+## Phase 5 — Feed Materialization ✅ (shipped off by default, flip `FEED_MATERIALIZED=true` to enable)
 **Goal:** feed reads stop loading 1200 rows into Go memory per request. Precompute scores.
 **Depends on:** Phase 3 (worker owns the materialization job).
 **Estimated effort:** 2–3 weeks.

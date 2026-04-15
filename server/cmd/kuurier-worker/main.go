@@ -28,6 +28,7 @@ import (
 
 	"github.com/kuurier/server/internal/bot"
 	"github.com/kuurier/server/internal/config"
+	"github.com/kuurier/server/internal/feed"
 	"github.com/kuurier/server/internal/logger"
 	"github.com/kuurier/server/internal/migrations"
 	"github.com/kuurier/server/internal/storage"
@@ -86,6 +87,12 @@ func main() {
 	// Heartbeat loop: write every 30s so the API can check worker health.
 	go runHeartbeat(ctx, redis)
 
+	// Feed materialization: precompute ranked feeds for active users.
+	// Runs every 5 minutes in a loop, with a panic-recovering wrapper
+	// similar to the bot scheduler.
+	materializer := feed.NewMaterializer(cfg, db, redis)
+	go runMaterializer(ctx, materializer)
+
 	// Consume Redis-backed admin triggers and dispatch to the right bot.
 	go bot.RunTriggerConsumer(ctx, redis, func(queue string) {
 		triggerCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -101,6 +108,36 @@ func main() {
 	log.Println("Worker ready")
 	<-ctx.Done()
 	log.Println("Worker shutting down")
+}
+
+func runMaterializer(ctx context.Context, m *feed.Materializer) {
+	// Run immediately so the first feeds are fresh for blue/green warm-up,
+	// then on a ticker. Wrap each call so a panic in scoring doesn't
+	// take the worker down.
+	runOnce := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("feed materializer panic recovered: %v", r)
+			}
+		}()
+		runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		if err := m.RunOnce(runCtx); err != nil {
+			log.Printf("feed materializer error: %v", err)
+		}
+	}
+
+	runOnce()
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runOnce()
+		}
+	}
 }
 
 func runHeartbeat(ctx context.Context, redis *storage.Redis) {

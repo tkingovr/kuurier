@@ -32,6 +32,7 @@ Set these inside the single `PRODUCTION_ENV` secret (one `KEY=value` per line, n
 | `MINIO_SECRET_KEY` | no | string | MinIO secret key |
 | `MINIO_BUCKET` | no | string | Bucket name |
 | `MINIO_USE_SSL` | no | `true`/`false` | TLS to MinIO |
+| `FEED_MATERIALIZED` | no | `true`/`false` | Serve for_you feed from precomputed materialized_feeds table (worker populates every ~5 min). Default false. |
 
 ## One-time setup
 

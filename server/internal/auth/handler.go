@@ -336,6 +336,13 @@ func (h *Handler) Verify(c *gin.Context) {
 		return
 	}
 
+	// Touch last_active_at so the feed materializer (running in the
+	// worker) knows this user is active and worth precomputing for.
+	// Fire-and-forget — a failure here should not block auth.
+	_, _ = h.db.Pool().Exec(ctx,
+		"UPDATE users SET last_active_at = NOW() WHERE id = $1", req.UserID,
+	)
+
 	// Generate JWT token
 	tokenExpiresAt := time.Now().Add(time.Duration(h.cfg.TokenDuration) * time.Hour)
 	claims := jwt.MapClaims{
