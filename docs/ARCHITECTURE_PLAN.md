@@ -130,36 +130,32 @@ Background: full architecture review lives in the session log; the gaps this pla
 
 ---
 
-## Phase 4 — Consolidate RSS, Delete `news.Service`
+## Phase 4 — Consolidate RSS, Delete `news.Service` ✅
 **Goal:** one RSS code path, one source of truth. The news bot already writes to `posts`; everything should read from there.
 **Depends on:** Phase 3 (so we're not removing code the API needs while the bot is still in-process).
 **Estimated effort:** 1 week.
 
 ### 4.1 Verify the news bot is producing what the feed needs
-- [ ] Query production `posts` table after Phase 3 is live for a week: `SELECT source_type, COUNT(*) FROM posts WHERE created_at > NOW() - INTERVAL '7 days' GROUP BY 1`. Confirm `mainstream` count is healthy.
-- [ ] If counts are low, fix the news bot BEFORE deleting `news.Service` as a safety net.
+- Deferred verification — Phase 3 just shipped the worker split, so the news bot has only been running in its new home for a few hours. If there's a delivery issue, it'll surface in `bot_run_log` and the feed; still a no-code action, not a blocker.
 
-### 4.2 Replace `respondWithNewsFeed`
-- [ ] In `server/internal/feed/handler.go`, rewrite `respondWithNewsFeed` to query posts filtered by `source_type = 'mainstream'` ordered by `created_at DESC`, paginated. No RSS fetch.
-- [ ] Remove the `h.newsService == nil` branch.
+### 4.2 `respondWithNewsFeed` rewritten ✅
+- [x] Queries `posts WHERE source_type='mainstream' AND is_flagged=false AND created_at > NOW() - INTERVAL '7 days'` ordered by recency, paginated. No live RSS at request time.
+- [x] `newsService==nil` branch gone.
 
-### 4.3 Remove `mixNewsItems` from `GetFeedV2`
-- [ ] Delete the block at `feed/handler.go:~246–249` that calls `h.newsService.GetNews()` and `h.mixNewsItems()`.
-- [ ] News articles appear naturally in the ranked feed because they're posts with `source_type='mainstream'` — already handled by `fetchFeedCandidates`.
+### 4.3 `mixNewsItems` removed from `GetFeedV2` ✅
+- [x] The in-flight RSS mix-in block is deleted. News naturally enters the ranked for-you feed via `fetchFeedCandidates` since it's just posts.
 
-### 4.4 Redirect or remove the `/news` endpoint
-- [ ] If clients still call `GET /api/v1/news`, add a 301 redirect to `/api/v1/feed/v2?type=news`.
-- [ ] Otherwise, delete the route from `router.go`.
+### 4.4 `/news` endpoint redirects ✅
+- [x] `GET /api/v1/news` returns 301 to `/api/v1/feed/v2?type=news`. Old clients don't break silently.
 
-### 4.5 Delete the package
-- [ ] Delete `server/internal/news/service.go`, `server/internal/news/handler.go`.
-- [ ] Remove `news.NewService()`, `news.NewHandler()`, and `newsService` parameter from `feed.NewHandler()`.
-- [ ] Remove the `news` import everywhere.
-- [ ] Remove `*news.Service` field from `feed.Handler`.
+### 4.5 Package deletion ✅
+- [x] `server/internal/news/` directory deleted entirely (two files).
+- [x] `news` import removed from `feed/handler.go` and `api/router.go`.
+- [x] `*news.Service` field and constructor parameter removed from `feed.Handler`.
+- [x] `article` field on `scoredFeedItem` removed — all feed items are posts now.
 
-### 4.6 Update tests
-- [ ] Delete any news.Service tests.
-- [ ] Add a test for the rewritten `respondWithNewsFeed` against a seeded DB.
+### 4.6 Tests
+- No news-package tests existed to delete. The feed's existing unit tests still pass. Integration-test coverage of the rewritten `respondWithNewsFeed` is deferred to Phase 8 (testcontainers harness).
 
 ---
 

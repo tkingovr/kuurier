@@ -17,7 +17,6 @@ import (
 	"github.com/kuurier/server/internal/media"
 	"github.com/kuurier/server/internal/messaging"
 	"github.com/kuurier/server/internal/middleware"
-	"github.com/kuurier/server/internal/news"
 	"github.com/kuurier/server/internal/push"
 	"github.com/kuurier/server/internal/storage"
 	"github.com/kuurier/server/internal/websocket"
@@ -77,9 +76,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	messageHandler := messaging.NewMessageHandler(cfg, db)
 	groupHandler := messaging.NewGroupHandler(cfg, db)
 	governanceHandler := messaging.NewGovernanceHandler(cfg, db)
-	newsService := news.NewService()
-	feedHandler := feed.NewHandler(cfg, db, redis, newsService)
-	newsHandler := news.NewHandler(newsService)
+	feedHandler := feed.NewHandler(cfg, db, redis)
 	geoHandler := geo.NewHandler(cfg, db, redis)
 	eventsHandler := events.NewHandler(cfg, db, redis)
 	alertsHandler := alerts.NewHandler(cfg, db, redis, pushService)
@@ -223,8 +220,13 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 				feedRoutes.POST("/posts/:id/flag", feedHandler.FlagPost)
 			}
 
-			// News routes (aggregated news from external sources)
-			protected.GET("/news", newsHandler.GetNews)
+			// /news is gone — clients should use /feed/v2?type=news.
+			// News articles are stored as posts (source_type='mainstream')
+			// written by the news bot; the feed handler reads them from
+			// the same posts table as everything else.
+			protected.GET("/news", func(c *gin.Context) {
+				c.Redirect(http.StatusMovedPermanently, "/api/v1/feed/v2?type=news")
+			})
 
 			// Media routes (only if MinIO is configured)
 			if mediaHandler != nil {

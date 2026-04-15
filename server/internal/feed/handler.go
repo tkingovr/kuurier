@@ -12,21 +12,25 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kuurier/server/internal/config"
-	"github.com/kuurier/server/internal/news"
 	"github.com/kuurier/server/internal/storage"
 )
 
-// Handler handles feed-related endpoints
+// Handler handles feed-related endpoints.
+//
+// Phase 4 note: news is no longer a separate service. The news bot
+// (in the worker process) writes RSS articles to the posts table as
+// source_type='mainstream' posts. Both the regular feed and the
+// news-only feed (FeedTypeNews) read from posts, so there's only
+// one code path for news ingestion.
 type Handler struct {
-	cfg         *config.Config
-	db          *storage.Postgres
-	redis       *storage.Redis
-	newsService *news.Service
+	cfg   *config.Config
+	db    *storage.Postgres
+	redis *storage.Redis
 }
 
-// NewHandler creates a new feed handler
-func NewHandler(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, newsService *news.Service) *Handler {
-	return &Handler{cfg: cfg, db: db, redis: redis, newsService: newsService}
+// NewHandler creates a new feed handler.
+func NewHandler(cfg *config.Config, db *storage.Postgres, redis *storage.Redis) *Handler {
+	return &Handler{cfg: cfg, db: db, redis: redis}
 }
 
 // CreatePostRequest represents a new post
@@ -79,7 +83,6 @@ type scoredFeedItem struct {
 	score    float64
 	itemType string
 	post     *postCandidate
-	article  *news.NewsArticle
 	why      []string
 }
 
@@ -242,14 +245,9 @@ func (h *Handler) GetFeedV2(c *gin.Context) {
 
 	scoredItems := h.rankFeedCandidates(feedType, candidates, subscriptions, topicNames, lat, lon, radiusMeters, minUrgency)
 
-	// Mix in live RSS news for "for_you" feed
-	if feedType == FeedTypeForYou && h.newsService != nil {
-		articles, cached := h.newsService.GetNews()
-		if len(articles) == 0 {
-			log.Printf("[feed] Warning: news service returned 0 articles (cached=%v) — RSS feeds may be unreachable", cached)
-		}
-		scoredItems = h.mixNewsItems(scoredItems, articles)
-	}
+	// News articles enter the feed naturally as posts with
+	// source_type='mainstream' (written by the news bot), so no
+	// separate live-fetch mix-in here.
 
 	items := h.buildFeedResponseItems(ctx, scoredItems)
 
@@ -730,49 +728,65 @@ func (h *Handler) getPostMediaBatch(ctx context.Context, postIDs []string) map[s
 	return result
 }
 
+// respondWithNewsFeed returns bot-posted news articles (source_type
+// = 'mainstream') from the posts table, sorted by recency.
+//
+// Phase 4 note: this used to live-fetch RSS feeds at request time via
+// an in-process cache. That path is gone — the news bot (now in the
+// worker process) writes articles to the posts table, and this
+// handler is a simple paginated query against that table.
 func (h *Handler) respondWithNewsFeed(c *gin.Context, limit, offset int) {
-	if h.newsService == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"items":       []gin.H{},
-			"limit":       limit,
-			"offset":      offset,
-			"next_offset": -1,
-		})
+	ctx := c.Request.Context()
+
+	rows, err := h.db.Pool().Query(ctx, `
+		SELECT p.id, p.author_id, p.content, p.source_type,
+		       ST_Y(p.location::geometry) as lat,
+		       ST_X(p.location::geometry) as lon,
+		       p.location_name, p.urgency, p.created_at, p.verification_score,
+		       COALESCE(u.trust_score, 0) as trust_score
+		FROM posts p
+		LEFT JOIN users u ON u.id = p.author_id
+		WHERE p.source_type = 'mainstream'
+		  AND p.is_flagged = false
+		  AND p.created_at > NOW() - INTERVAL '7 days'
+		ORDER BY p.created_at DESC
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch news"})
 		return
 	}
+	defer rows.Close()
 
-	articles, _ := h.newsService.GetNews()
-	scored := make([]scoredFeedItem, 0, len(articles))
-	for _, article := range articles {
-		why := []string{"News", "Category: " + article.Category}
-		score := recencyScore(article.PublishedAt)
+	scored := make([]scoredFeedItem, 0, limit)
+	for rows.Next() {
+		var post postCandidate
+		if err := rows.Scan(
+			&post.id, &post.authorID, &post.content, &post.sourceType,
+			&post.latitude, &post.longitude,
+			&post.locationName, &post.urgency, &post.createdAt, &post.verificationScore,
+			&post.authorTrustScore,
+		); err != nil {
+			continue
+		}
 		scored = append(scored, scoredFeedItem{
-			score:    score,
-			itemType: "news",
-			article:  &article,
-			why:      why,
+			score:    recencyScore(post.createdAt),
+			itemType: "post",
+			post:     &post,
+			why:      []string{"News"},
 		})
 	}
 
-	sort.Slice(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
-	items := h.buildFeedResponseItems(c.Request.Context(), scored)
+	items := h.buildFeedResponseItems(ctx, scored)
 
-	start := offset
-	if start > len(items) {
-		start = len(items)
-	}
-	end := start + limit
-	if end > len(items) {
-		end = len(items)
-	}
-	paged := items[start:end]
-	nextOffset := offset + len(paged)
-	if nextOffset >= len(items) {
+	nextOffset := offset + len(items)
+	// If we got fewer than the limit, we're at the end.
+	if len(items) < limit {
 		nextOffset = -1
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"items":       paged,
+		"items":       items,
 		"limit":       limit,
 		"offset":      offset,
 		"next_offset": nextOffset,
@@ -1013,26 +1027,6 @@ func (h *Handler) rankFeedCandidates(
 	return diversified
 }
 
-func (h *Handler) mixNewsItems(items []scoredFeedItem, articles []news.NewsArticle) []scoredFeedItem {
-	limit := 5
-	if len(articles) < limit {
-		limit = len(articles)
-	}
-	for i := 0; i < limit; i++ {
-		article := articles[i]
-		why := []string{"News", "Category: " + article.Category}
-		items = append(items, scoredFeedItem{
-			score:    recencyScore(article.PublishedAt),
-			itemType: "news",
-			article:  &article,
-			why:      why,
-		})
-	}
-
-	sort.Slice(items, func(i, j int) bool { return items[i].score > items[j].score })
-	return items
-}
-
 func (h *Handler) buildFeedResponseItems(ctx context.Context, items []scoredFeedItem) []gin.H {
 	// Collect all post IDs for batch media loading
 	var postIDs []string
@@ -1045,21 +1039,12 @@ func (h *Handler) buildFeedResponseItems(ctx context.Context, items []scoredFeed
 
 	result := make([]gin.H, 0, len(items))
 	for _, item := range items {
-		switch item.itemType {
-		case "news":
-			if item.article == nil {
-				continue
-			}
-			result = append(result, gin.H{
-				"id":      item.article.ID,
-				"type":    "news",
-				"article": item.article,
-				"why":     item.why,
-			})
-		default:
-			if item.post == nil {
-				continue
-			}
+		// All feed items are posts now. News articles appear as posts
+		// with source_type='mainstream' after Phase 4.
+		if item.post == nil {
+			continue
+		}
+		{
 			post := item.post
 			postJSON := gin.H{
 				"id":                 post.id,
