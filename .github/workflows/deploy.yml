@@ -62,7 +62,11 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 2222
-          script_stop: true
+          # NOTE: do NOT enable script_stop — it aborts on any non-zero
+          # exit status, including from `[ ... ]` tests inside an `if`
+          # construct (which the shell is supposed to consume). We rely
+          # on `set -e` in the script instead, which correctly respects
+          # if/else/while semantics.
           envs: DEPLOY_SHA,DEPLOY_BRANCH,DEPLOY_REPO,DEPLOY_BUILD_DATE,PROD_ENV_B64
           script: |
             set -e
@@ -74,12 +78,10 @@ jobs:
             git clone --depth 1 --branch "$DEPLOY_BRANCH" "https://github.com/${DEPLOY_REPO}.git" "$STAGE_DIR/repo"
 
             echo "=== Writing .env from GitHub Actions secret ==="
-            # Normalize first so later checks don't need to handle unset vs empty.
+            # Normalize PROD_ENV_B64 (may be unset if the secret was not
+            # configured — appleboy/ssh-action skips empty env forwards).
             PROD_ENV_B64="${PROD_ENV_B64:-}"
-            echo "DEBUG: PROD_ENV_B64 length=${#PROD_ENV_B64} DEPLOY_SHA=$DEPLOY_SHA"
-            echo "DEBUG: before if"
             if [ -n "$PROD_ENV_B64" ]; then
-              echo "DEBUG: entered IF branch"
               # Canonical path: secret is the source of truth. Write
               # atomically so a failed write never leaves .env empty.
               umask 077
@@ -88,7 +90,6 @@ jobs:
               mv "$DEPLOY_DIR/.env.new" "$DEPLOY_DIR/.env"
               echo ".env written from GitHub secret ($(wc -l < "$DEPLOY_DIR/.env") lines)"
             else
-              echo "DEBUG: entered ELSE branch"
               echo "WARNING: PROD_ENV_B64 empty — using legacy container-introspection recovery."
               echo "Add the PRODUCTION_ENV secret per docs/SECRETS.md to switch to the canonical path."
               touch "$DEPLOY_DIR/.env"
@@ -117,9 +118,7 @@ jobs:
               REDIS_PASS=$(echo "$REDIS_URL_LINE" | sed -n 's|^redis://[^:]*:\([^@]*\)@.*|\1|p')
               add_if_missing REDIS_PASSWORD "$REDIS_PASS"
               rm -f "$TMP_ENV" "$TMP_ENV.api" "$TMP_ENV.pg"
-              echo "DEBUG: exiting ELSE branch"
             fi
-            echo "DEBUG: after if/else"
 
             # Verify required keys are present regardless of which path we took.
             for k in DB_PASSWORD REDIS_PASSWORD JWT_SECRET ENCRYPTION_KEY CORS_ALLOWED_ORIGINS; do
