@@ -62,7 +62,7 @@ jobs:
             }
 
             # App-level secrets from api-blue
-            while IFS= read -r line; do
+            docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' | while IFS= read -r line; do
               KEY="${line%%=*}"
               VAL="${line#*=}"
               case "$KEY" in
@@ -70,16 +70,16 @@ jobs:
                   add_key "$KEY" "$VAL"
                   ;;
               esac
-            done < <(docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}')
+            done
 
             # DB credentials from postgres container
-            while IFS= read -r line; do
+            docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}' | while IFS= read -r line; do
               case "$line" in
                 POSTGRES_USER=*) add_key "DB_USER" "${line#POSTGRES_USER=}" ;;
                 POSTGRES_DB=*) add_key "DB_NAME" "${line#POSTGRES_DB=}" ;;
                 POSTGRES_PASSWORD=*) add_key "DB_PASSWORD" "${line#POSTGRES_PASSWORD=}" ;;
               esac
-            done < <(docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}')
+            done
 
             # REDIS_PASSWORD from REDIS_URL in api-blue
             if ! has_key REDIS_PASSWORD; then
