@@ -4,7 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -27,22 +27,66 @@ func MaxBodySize(maxBytes int64) gin.HandlerFunc {
 	}
 }
 
-// Logger provides request logging
+// Logger emits a structured slog record per request.
+//
+// Privacy note: we intentionally do NOT log IPs or user-agents — both
+// can fingerprint users. user_id is logged when present because it's
+// already a first-class identifier inside the system.
+//
+// Must be chained AFTER RequestID() so request_id is populated.
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
+		query := c.Request.URL.RawQuery
 
 		c.Next()
 
-		// Log after request completes
 		latency := time.Since(start)
 		status := c.Writer.Status()
 		method := c.Request.Method
 
-		// Minimal logging - no IPs for privacy
-		log.Printf("%s %s %d %v", method, path, status, latency)
+		attrs := []any{
+			slog.String("request_id", c.GetString(RequestIDContextKey)),
+			slog.String("method", method),
+			slog.String("path", path),
+			slog.Int("status", status),
+			slog.Int64("latency_ms", latency.Milliseconds()),
+			slog.Int("response_bytes", c.Writer.Size()),
+		}
+		if query != "" {
+			attrs = append(attrs, slog.String("query", query))
+		}
+		if uid := c.GetString("user_id"); uid != "" {
+			attrs = append(attrs, slog.String("user_id", uid))
+		}
+		if errs := c.Errors.String(); errs != "" {
+			attrs = append(attrs, slog.String("errors", errs))
+		}
+
+		// Server errors are worth alerting on; 4xx are client problems.
+		switch {
+		case status >= 500:
+			slog.LogAttrs(c.Request.Context(), slog.LevelError, "request", toAttrs(attrs)...)
+		case status >= 400:
+			slog.LogAttrs(c.Request.Context(), slog.LevelWarn, "request", toAttrs(attrs)...)
+		default:
+			slog.LogAttrs(c.Request.Context(), slog.LevelInfo, "request", toAttrs(attrs)...)
+		}
 	}
+}
+
+// toAttrs coerces a mixed []any slice of slog.Attr values into a typed
+// []slog.Attr that LogAttrs accepts. Any non-Attr entries are dropped
+// silently — this function is only used internally with Attr-only input.
+func toAttrs(in []any) []slog.Attr {
+	out := make([]slog.Attr, 0, len(in))
+	for _, v := range in {
+		if a, ok := v.(slog.Attr); ok {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // CORS handles Cross-Origin Resource Sharing
@@ -161,7 +205,9 @@ func RateLimit(redis *storage.Redis, rateCfg *RateLimitConfig, serverCfg *config
 
 		if err != nil {
 			// Redis unavailable - use local fallback or fail closed
-			log.Printf("WARNING: Redis rate limit check failed: %v", err)
+			slog.WarnContext(c.Request.Context(), "redis rate limit check failed, using local fallback",
+				slog.String("error", err.Error()),
+				slog.Bool("fail_closed", rateCfg.FailClosedMode))
 
 			if rateCfg.FailClosedMode {
 				// Use local in-memory rate limiter as fallback

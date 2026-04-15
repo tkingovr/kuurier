@@ -30,10 +30,14 @@ Background: full architecture review lives in the session log; the gaps this pla
 - [x] Protest bot updated with same pattern.
 - [x] Tests (`safe_test.go`): success passthrough, error passthrough, panic recovery, nil-map panic, and multi-call-after-panic scheduler pattern.
 
-### 1.4 Structured request logging middleware
-- [ ] Add a `RequestID` middleware in `server/internal/middleware/` that generates a UUID per request and stores it in `gin.Context` under key `"request_id"` and as a response header `X-Request-ID`.
-- [ ] Replace the `log.Printf` in `server/internal/middleware/middleware.go:31` (the existing Logger middleware) with a `slog.InfoContext` call that includes: `request_id`, `method`, `path`, `status`, `latency_ms`, `user_id` (if auth context is set), `ip`, and `user_agent`.
-- [ ] Confirm `logger.Init()` is called before the router is created in `main.go`.
+### 1.4 Structured request logging middleware ✅
+- [x] `middleware.RequestID()` generates a UUID per request (honoring a client-supplied `X-Request-ID` when reasonable), stores it on `gin.Context`, and echoes it back as a response header. `RequestIDFromContext()` helper lets downstream code reach it.
+- [x] `middleware.Logger()` rewritten to emit a structured `slog` record with `request_id`, `method`, `path`, `query`, `status`, `latency_ms`, `response_bytes`, and `user_id` (when set). Uses `LogAttrs` at Info/Warn/Error level based on HTTP status class so 5xx requests stand out.
+- [x] **Deliberate deviation from the plan**: did NOT include `ip` or `user_agent` because the existing codebase has a pre-existing privacy stance against logging those. The Phase 1.4 plan item is adjusted accordingly.
+- [x] Router chain updated to run `RequestID` before `Logger`.
+- [x] Migrated the `log.Printf` in the rate-limit fallback to `slog.WarnContext` while touching the file.
+- [x] Confirmed `logger.Init()` runs in `main.go:42` before `NewRouter()` is called later in the function.
+- [x] 10 new tests in `request_id_test.go` cover ID generation, header passthrough, oversized-header rejection, context extraction, structured field emission, level selection for 4xx/5xx, user_id inclusion, and the no-ip/no-ua privacy invariant.
 
 ### 1.5 Secrets move to `age`-encrypted file
 - [ ] Install `age` locally, generate a key pair. Store the private key in a password manager AND on an offline backup (USB, paper).

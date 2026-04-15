@@ -57,6 +57,7 @@ func NewRouter(cfg *config.Config, db *storage.Postgres, redis *storage.Redis, m
 	// Global middleware
 	router.Use(gin.Recovery())
 	router.Use(middleware.MaxBodySize(10 * 1024 * 1024)) // 10MB max request body
+	router.Use(middleware.RequestID())                    // must run before Logger so request_id is set
 	router.Use(middleware.Logger())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Security())
