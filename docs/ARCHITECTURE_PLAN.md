@@ -39,18 +39,25 @@ Background: full architecture review lives in the session log; the gaps this pla
 - [x] Confirmed `logger.Init()` runs in `main.go:42` before `NewRouter()` is called later in the function.
 - [x] 10 new tests in `request_id_test.go` cover ID generation, header passthrough, oversized-header rejection, context extraction, structured field emission, level selection for 4xx/5xx, user_id inclusion, and the no-ip/no-ua privacy invariant.
 
-### 1.5 Secrets move to `age`-encrypted file
-- [ ] Install `age` locally, generate a key pair. Store the private key in a password manager AND on an offline backup (USB, paper).
-- [ ] Write a new `server/scripts/secrets-decrypt.sh` that runs `age -d -i $AGE_KEY_FILE secrets.age > .env`.
-- [ ] Commit the age public key as `server/age-recipients.txt` so anyone can re-encrypt.
-- [ ] Export current production secrets (from the running containers — we already have the recovery logic in the deploy script) into a plain `.env`, encrypt to `server/secrets.age`, commit the encrypted file.
-- [ ] Add `server/.env*` to `.gitignore` (verify it's already there).
-- [ ] Update `deploy.yml` to decrypt `secrets.age` via an `AGE_KEY` GitHub Actions secret before `docker compose up`.
-- [ ] Remove the env-recovery block in `deploy.yml` once the encrypted path is proven.
+### 1.5 Secrets in GitHub Actions environment (not in repo)
+**Revised approach:** the user wants nothing secret-adjacent in the public repo, even encrypted. Use GitHub Actions environment secrets (which we already use for `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`) as the canonical store. One big `PRODUCTION_ENV_FILE` secret holds the entire `.env` body.
 
-### 1.6 Remove `.DS_Store` and audit for accidentally-committed secrets
-- [ ] Add `**/.DS_Store` to `.gitignore`.
-- [ ] Run `git log --all --full-history -- server/.env` to check if the env file was ever committed. If yes, rotate every secret.
+- [ ] Document the list of required secret keys in `docs/DEPLOYMENT.md` (or a new `docs/SECRETS.md`): `DB_USER`, `DB_NAME`, `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET` (32+ chars), `ENCRYPTION_KEY` (exactly 32 chars), `CORS_ALLOWED_ORIGINS`, plus optional `APNS_*` and `MINIO_*`.
+- [ ] Have the user SSH into the server once and capture the current `.env` content: `cat ~/kuurier/.env`.
+- [ ] User creates a GitHub Actions environment secret named `PRODUCTION_ENV` in the `production` environment, pasting the full `.env` body as the value.
+- [ ] Update `deploy.yml` to read `$PRODUCTION_ENV` and write it to `~/kuurier/.env` on the server (atomic write via `mktemp` + `mv` so we don't leave the file half-written).
+- [ ] Remove the container-introspection recovery path from `deploy.yml` — it was a transitional hack and GitHub Actions is now the source of truth.
+- [ ] Document in `docs/SECRETS.md`: rotation procedure (edit the GH secret → trigger deploy), disaster recovery (keep a password-manager copy of the last known-good `.env`), and the one-time migration steps.
+
+### 1.6 Remove `.DS_Store` and audit for accidentally-committed secrets ✅
+- [x] Verified: `.DS_Store` is already in `.gitignore` (line 61). Same for `.env`, `.env.*`, `*.pem`, `*.key`, `secrets/`.
+- [x] Verified: **no `.DS_Store` files are currently tracked** (`git ls-files` clean).
+- [x] Verified: **git history is clean** — no historical commits of `.env`, `.DS_Store`, `.pem`, or `.key` files.
+- [x] Verified: no private keys (`BEGIN PRIVATE KEY`) or AWS-style keys (`AKIA...`) in history.
+- [x] Content scan found only dev-only placeholders in `run-local.sh` and `config.go` — both clearly marked `INSECURE_DEV_SECRET` / `change_me`. Production rejects missing/short `JWT_SECRET` at startup (`config.go:89-98`), so the placeholder cannot reach prod.
+- [x] `.env.production.example` files are tracked as templates (no real values).
+
+**Outcome:** no secrets to rotate, no files to remove. This phase was a verification pass.
 
 ---
 
