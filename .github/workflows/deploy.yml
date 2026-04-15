@@ -48,9 +48,27 @@ jobs:
             echo "=== Cloning latest code into $STAGE_DIR ==="
             git clone --depth 1 --branch "${{ github.ref_name }}" https://github.com/${{ github.repository }}.git "$STAGE_DIR/repo"
 
+            echo "=== Recovering .env from running containers if missing ==="
+            if [ ! -f "$DEPLOY_DIR/.env" ]; then
+              echo "No .env present — extracting from kuurier-api-blue"
+              {
+                docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(DB_PASSWORD|REDIS_PASSWORD|JWT_SECRET|ENCRYPTION_KEY|CORS_ALLOWED_ORIGINS|DB_USER|DB_NAME|APNS_|MINIO_|BLUE_VERSION|GREEN_VERSION)=' || true
+              } > "$DEPLOY_DIR/.env.recovered"
+              # Also pull DB_USER/DB_NAME defaults from postgres container
+              docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^POSTGRES_(USER|DB|PASSWORD)=' | sed 's/^POSTGRES_USER=/DB_USER=/; s/^POSTGRES_DB=/DB_NAME=/; s/^POSTGRES_PASSWORD=/DB_PASSWORD=/' >> "$DEPLOY_DIR/.env.recovered" || true
+              # Deduplicate keeping first occurrence
+              awk -F= '!seen[$1]++' "$DEPLOY_DIR/.env.recovered" > "$DEPLOY_DIR/.env"
+              rm -f "$DEPLOY_DIR/.env.recovered"
+              chmod 600 "$DEPLOY_DIR/.env"
+              echo ".env restored with $(wc -l < "$DEPLOY_DIR/.env") entries"
+            fi
+
             echo "=== Syncing server/ contents into $DEPLOY_DIR ==="
-            # Preserve runtime-only dirs that aren't in the repo (certs, webapp-build, certbot-webroot)
+            # Preserve runtime-only files/dirs that aren't in the repo
+            # (secrets, certs, build artifacts). Everything else gets updated.
             rsync -a --delete \
+              --exclude='.env' \
+              --exclude='.env.*' \
               --exclude='certs/' \
               --exclude='certbot-webroot/' \
               --exclude='webapp-build/' \
