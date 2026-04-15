@@ -74,8 +74,12 @@ jobs:
             git clone --depth 1 --branch "$DEPLOY_BRANCH" "https://github.com/${DEPLOY_REPO}.git" "$STAGE_DIR/repo"
 
             echo "=== Writing .env from GitHub Actions secret ==="
-            echo "DEBUG: PROD_ENV_B64 length=${#PROD_ENV_B64}"
-            if [ -n "${PROD_ENV_B64:-}" ]; then
+            # Normalize first so later checks don't need to handle unset vs empty.
+            PROD_ENV_B64="${PROD_ENV_B64:-}"
+            echo "DEBUG: PROD_ENV_B64 length=${#PROD_ENV_B64} DEPLOY_SHA=$DEPLOY_SHA"
+            set +e  # turn off strict exit for the env-check branch so we can see errors
+            if [ -n "$PROD_ENV_B64" ]; then
+              set -e
               # Canonical path: secret is the source of truth. Write
               # atomically so a failed write never leaves .env empty.
               umask 077
@@ -112,6 +116,7 @@ jobs:
               REDIS_PASS=$(echo "$REDIS_URL_LINE" | sed -n 's|^redis://[^:]*:\([^@]*\)@.*|\1|p')
               add_if_missing REDIS_PASSWORD "$REDIS_PASS"
               rm -f "$TMP_ENV" "$TMP_ENV.api" "$TMP_ENV.pg"
+              set -e
             fi
 
             # Verify required keys are present regardless of which path we took.
