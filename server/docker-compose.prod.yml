@@ -81,7 +81,7 @@ services:
     environment:
       PORT: "8080"
       ENVIRONMENT: production
-      DATABASE_URL: postgres://${DB_USER:-kuurier}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-kuurier}?sslmode=require
+      DATABASE_URL: postgres://${DB_USER:-kuurier}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-kuurier}?sslmode=disable
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY required}
@@ -111,7 +111,7 @@ services:
     environment:
       PORT: "8080"
       ENVIRONMENT: production
-      DATABASE_URL: postgres://${DB_USER:-kuurier}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-kuurier}?sslmode=require
+      DATABASE_URL: postgres://${DB_USER:-kuurier}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-kuurier}?sslmode=disable
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY required}
