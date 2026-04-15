@@ -74,6 +74,7 @@ jobs:
             git clone --depth 1 --branch "$DEPLOY_BRANCH" "https://github.com/${DEPLOY_REPO}.git" "$STAGE_DIR/repo"
 
             echo "=== Writing .env from GitHub Actions secret ==="
+            echo "DEBUG: PROD_ENV_B64 length=${#PROD_ENV_B64}"
             if [ -n "${PROD_ENV_B64:-}" ]; then
               # Canonical path: secret is the source of truth. Write
               # atomically so a failed write never leaves .env empty.
