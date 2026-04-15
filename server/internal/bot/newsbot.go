@@ -47,9 +47,11 @@ func NewNewsBot(db *storage.Postgres) *NewsBot {
 func (b *NewsBot) Start() {
 	log.Println("[newsbot] Starting news aggregation bot (schedule: 08:00 and 18:00 UTC)")
 
-	// Run immediately on startup to populate the feed
+	// Run immediately on startup to populate the feed. Panics here must
+	// not bring down the process — if RSS parsing blows up on one source
+	// we still want the scheduler to keep running.
 	go func() {
-		if err := b.RunOnce(context.Background()); err != nil {
+		if err := safeRun(context.Background(), "newsbot", b.RunOnce); err != nil {
 			log.Printf("[newsbot] Initial run failed: %v", err)
 		}
 	}()
@@ -62,7 +64,8 @@ func (b *NewsBot) Stop() {
 	close(b.stopCh)
 }
 
-// scheduleLoop runs the bot at the configured hours.
+// scheduleLoop runs the bot at the configured hours. A panic inside
+// RunOnce is caught by safeRun so the next scheduled tick still fires.
 func (b *NewsBot) scheduleLoop() {
 	for {
 		now := time.Now().UTC()
@@ -74,7 +77,7 @@ func (b *NewsBot) scheduleLoop() {
 		select {
 		case <-time.After(wait):
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			if err := b.RunOnce(ctx); err != nil {
+			if err := safeRun(ctx, "newsbot", b.RunOnce); err != nil {
 				log.Printf("[newsbot] Scheduled run failed: %v", err)
 			}
 			cancel()

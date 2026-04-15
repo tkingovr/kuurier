@@ -24,10 +24,11 @@ Background: full architecture review lives in the session log; the gaps this pla
 - [x] Backfill inlined into the deploy: if `schema_migrations` is empty but `users` table exists (existing prod DB), mark all existing numbered migrations as already-applied automatically. No separate one-shot SQL file needed.
 - [x] Verified: second consecutive deploy shows `No pending migrations` with no bootstrap firing. Idempotent.
 
-### 1.3 Bot panic recovery
-- [ ] Wrap the body of `scheduleLoop()` in `server/internal/bot/newsbot.go:66` with `defer recover()` that logs the panic and restarts the loop after a 30-second backoff.
-- [ ] Do the same for `server/internal/bot/protestbot.go:62`.
-- [ ] Add a test that panics inside a mocked `RunOnce` and asserts the loop restarts.
+### 1.3 Bot panic recovery ✅
+- [x] Added `safeRun` helper in `server/internal/bot/safe.go` — catches panics, logs stack trace via `runtime/debug.Stack()`, converts to an error.
+- [x] News bot `Start()` initial-run goroutine and `scheduleLoop()` both route through `safeRun` so a panic in `RunOnce` no longer kills the scheduler.
+- [x] Protest bot updated with same pattern.
+- [x] Tests (`safe_test.go`): success passthrough, error passthrough, panic recovery, nil-map panic, and multi-call-after-panic scheduler pattern.
 
 ### 1.4 Structured request logging middleware
 - [ ] Add a `RequestID` middleware in `server/internal/middleware/` that generates a UUID per request and stores it in `gin.Context` under key `"request_id"` and as a response header `X-Request-ID`.

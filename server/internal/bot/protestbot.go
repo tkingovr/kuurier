@@ -44,11 +44,13 @@ func NewProtestBot(db *storage.Postgres) *ProtestBot {
 
 // Start begins the bot's scheduled loop.
 // Runs immediately on startup, then twice daily at 7 AM and 5 PM UTC.
+// A panic in RunOnce is caught by safeRun so the scheduler survives
+// malformed findaprotest.info payloads and keeps ticking.
 func (b *ProtestBot) Start() {
 	log.Println("[protestbot] Starting protest scraper bot (schedule: 07:00 and 17:00 UTC)")
 
 	go func() {
-		if err := b.RunOnce(context.Background()); err != nil {
+		if err := safeRun(context.Background(), "protestbot", b.RunOnce); err != nil {
 			log.Printf("[protestbot] Initial run failed: %v", err)
 		}
 	}()
@@ -72,7 +74,7 @@ func (b *ProtestBot) scheduleLoop() {
 		select {
 		case <-time.After(wait):
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			if err := b.RunOnce(ctx); err != nil {
+			if err := safeRun(ctx, "protestbot", b.RunOnce); err != nil {
 				log.Printf("[protestbot] Scheduled run failed: %v", err)
 			}
 			cancel()
