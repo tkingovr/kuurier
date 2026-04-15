@@ -18,11 +18,11 @@ Background: full architecture review lives in the session log; the gaps this pla
 - [x] Add `GET /api/v1/version` handler returning `{"version": "...", "sha": "...", "built_at": "..."}`. Public, no auth.
 - [x] Update deploy script's health check to call `/version` and assert the SHA matches the expected value; fail the deploy if it doesn't.
 
-### 1.2 Wire `scripts/migrate.sh` into every deploy
-- [ ] Read `server/scripts/migrate.sh` and confirm it uses `schema_migrations` tracking table.
-- [ ] In `.github/workflows/deploy.yml`, replace the current hardcoded `for migration in migrations/010_*.sql ...` loop with a single call to `migrate.sh` (executed inside the postgres container via `docker exec`).
-- [ ] Verify the script is idempotent: run it twice in a row in CI against a test DB, second run should be a no-op.
-- [ ] Backfill: after the next deploy, the existing production DB should have rows in `schema_migrations` for 001–013. Write a one-shot SQL snippet that inserts those rows based on what's actually in the DB and commit it as `migrations/999_backfill_schema_migrations.sql` (run once, then delete).
+### 1.2 Wire `scripts/migrate.sh` into every deploy ✅
+- [x] Read `server/scripts/migrate.sh` and confirm it uses `schema_migrations` tracking table.
+- [x] In `.github/workflows/deploy.yml`, replace the current hardcoded `for migration in migrations/010_*.sql ...` loop with tracked-migration logic executed via `docker exec kuurier-postgres psql`.
+- [x] Backfill inlined into the deploy: if `schema_migrations` is empty but `users` table exists (existing prod DB), mark all existing numbered migrations as already-applied automatically. No separate one-shot SQL file needed.
+- [ ] Verify the deploy runs twice in a row cleanly (second run: bootstrap skipped, no pending migrations). Will verify on next push.
 
 ### 1.3 Bot panic recovery
 - [ ] Wrap the body of `scheduleLoop()` in `server/internal/bot/newsbot.go:66` with `defer recover()` that logs the panic and restarts the loop after a 30-second backoff.
