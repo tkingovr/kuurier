@@ -39,15 +39,14 @@ Background: full architecture review lives in the session log; the gaps this pla
 - [x] Confirmed `logger.Init()` runs in `main.go:42` before `NewRouter()` is called later in the function.
 - [x] 10 new tests in `request_id_test.go` cover ID generation, header passthrough, oversized-header rejection, context extraction, structured field emission, level selection for 4xx/5xx, user_id inclusion, and the no-ip/no-ua privacy invariant.
 
-### 1.5 Secrets in GitHub Actions environment (not in repo)
-**Revised approach:** the user wants nothing secret-adjacent in the public repo, even encrypted. Use GitHub Actions environment secrets (which we already use for `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`) as the canonical store. One big `PRODUCTION_ENV_FILE` secret holds the entire `.env` body.
+### 1.5 Secrets in GitHub Actions environment (not in repo) ✅
+**Revised approach:** the user wants nothing secret-adjacent in the public repo, even encrypted. Use GitHub Actions environment secrets (which we already use for `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`) as the canonical store. One big `PRODUCTION_ENV` secret holds the entire `.env` body.
 
-- [ ] Document the list of required secret keys in `docs/DEPLOYMENT.md` (or a new `docs/SECRETS.md`): `DB_USER`, `DB_NAME`, `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET` (32+ chars), `ENCRYPTION_KEY` (exactly 32 chars), `CORS_ALLOWED_ORIGINS`, plus optional `APNS_*` and `MINIO_*`.
-- [ ] Have the user SSH into the server once and capture the current `.env` content: `cat ~/kuurier/.env`.
-- [ ] User creates a GitHub Actions environment secret named `PRODUCTION_ENV` in the `production` environment, pasting the full `.env` body as the value.
-- [ ] Update `deploy.yml` to read `$PRODUCTION_ENV` and write it to `~/kuurier/.env` on the server (atomic write via `mktemp` + `mv` so we don't leave the file half-written).
-- [ ] Remove the container-introspection recovery path from `deploy.yml` — it was a transitional hack and GitHub Actions is now the source of truth.
-- [ ] Document in `docs/SECRETS.md`: rotation procedure (edit the GH secret → trigger deploy), disaster recovery (keep a password-manager copy of the last known-good `.env`), and the one-time migration steps.
+- [x] `docs/SECRETS.md` documents required keys, one-time setup, rotation, `ENCRYPTION_KEY` caveats, disaster recovery.
+- [x] `deploy.yml` base64-encodes `secrets.PRODUCTION_ENV` (log-masked), forwards via SSH, atomically writes to `~/kuurier/.env` with `umask 077`.
+- [x] User added the `PRODUCTION_ENV` secret to the `production` environment. Verified deploy shows `.env written from GitHub secret (6 lines)`.
+- [x] Fallback container-introspection path removed — deploy now **fails loudly** if `PRODUCTION_ENV` is missing instead of silently regenerating from running containers.
+- [x] Side discovery: `appleboy/ssh-action`'s `script_stop: true` option mis-handles `if [ ... ]` conditions (treats the test's exit status as a top-level failure). Disabled, documented inline, relying on `set -e` inside the script instead.
 
 ### 1.6 Remove `.DS_Store` and audit for accidentally-committed secrets ✅
 - [x] Verified: `.DS_Store` is already in `.gitignore` (line 61). Same for `.env`, `.env.*`, `*.pem`, `*.key`, `secrets/`.

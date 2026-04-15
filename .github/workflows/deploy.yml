@@ -77,53 +77,27 @@ jobs:
             echo "=== Cloning latest code into $STAGE_DIR (sha=$DEPLOY_SHA) ==="
             git clone --depth 1 --branch "$DEPLOY_BRANCH" "https://github.com/${DEPLOY_REPO}.git" "$STAGE_DIR/repo"
 
-            echo "=== Writing .env from GitHub Actions secret ==="
-            # Normalize PROD_ENV_B64 (may be unset if the secret was not
-            # configured — appleboy/ssh-action skips empty env forwards).
-            PROD_ENV_B64="${PROD_ENV_B64:-}"
-            if [ -n "$PROD_ENV_B64" ]; then
-              # Canonical path: secret is the source of truth. Write
-              # atomically so a failed write never leaves .env empty.
-              umask 077
-              echo "$PROD_ENV_B64" | base64 -d > "$DEPLOY_DIR/.env.new"
-              chmod 600 "$DEPLOY_DIR/.env.new"
-              mv "$DEPLOY_DIR/.env.new" "$DEPLOY_DIR/.env"
-              echo ".env written from GitHub secret ($(wc -l < "$DEPLOY_DIR/.env") lines)"
-            else
-              echo "WARNING: PROD_ENV_B64 empty — using legacy container-introspection recovery."
-              echo "Add the PRODUCTION_ENV secret per docs/SECRETS.md to switch to the canonical path."
-              touch "$DEPLOY_DIR/.env"
-              chmod 600 "$DEPLOY_DIR/.env"
-
-              TMP_ENV=$(mktemp)
-              docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' > "$TMP_ENV.api"
-              docker inspect kuurier-postgres --format '{{range .Config.Env}}{{println .}}{{end}}' > "$TMP_ENV.pg"
-
-              add_if_missing() {
-                NAME=$1
-                VAL=$2
-                if [ -n "$VAL" ] && ! grep -q "^$NAME=" "$DEPLOY_DIR/.env"; then
-                  printf '%s=%s\n' "$NAME" "$VAL" >> "$DEPLOY_DIR/.env"
-                fi
-              }
-
-              for key in JWT_SECRET ENCRYPTION_KEY CORS_ALLOWED_ORIGINS BLUE_VERSION GREEN_VERSION; do
-                val=$(grep "^${key}=" "$TMP_ENV.api" | head -1 | cut -d= -f2-)
-                add_if_missing "$key" "$val"
-              done
-              add_if_missing DB_USER "$(grep '^POSTGRES_USER=' "$TMP_ENV.pg" | cut -d= -f2-)"
-              add_if_missing DB_NAME "$(grep '^POSTGRES_DB=' "$TMP_ENV.pg" | cut -d= -f2-)"
-              add_if_missing DB_PASSWORD "$(grep '^POSTGRES_PASSWORD=' "$TMP_ENV.pg" | cut -d= -f2-)"
-              REDIS_URL_LINE=$(grep '^REDIS_URL=' "$TMP_ENV.api" | head -1 | cut -d= -f2-)
-              REDIS_PASS=$(echo "$REDIS_URL_LINE" | sed -n 's|^redis://[^:]*:\([^@]*\)@.*|\1|p')
-              add_if_missing REDIS_PASSWORD "$REDIS_PASS"
-              rm -f "$TMP_ENV" "$TMP_ENV.api" "$TMP_ENV.pg"
+            echo "=== Writing .env from PRODUCTION_ENV secret ==="
+            # PROD_ENV_B64 is the canonical source of truth. Fail loudly
+            # if it's missing — no more container-introspection fallback.
+            # See docs/SECRETS.md for rotation and recovery procedures.
+            if [ -z "${PROD_ENV_B64:-}" ]; then
+              echo "ERROR: PRODUCTION_ENV GitHub Actions secret is not set."
+              echo "Set it per docs/SECRETS.md — the deploy cannot proceed without it."
+              exit 1
             fi
 
-            # Verify required keys are present regardless of which path we took.
+            # Write atomically so a failed decode never leaves .env empty.
+            umask 077
+            echo "$PROD_ENV_B64" | base64 -d > "$DEPLOY_DIR/.env.new"
+            chmod 600 "$DEPLOY_DIR/.env.new"
+            mv "$DEPLOY_DIR/.env.new" "$DEPLOY_DIR/.env"
+            echo ".env written from GitHub secret ($(wc -l < "$DEPLOY_DIR/.env") lines)"
+
+            # Verify all required keys are present in what the user supplied.
             for k in DB_PASSWORD REDIS_PASSWORD JWT_SECRET ENCRYPTION_KEY CORS_ALLOWED_ORIGINS; do
               if ! grep -q "^${k}=" "$DEPLOY_DIR/.env"; then
-                echo "ERROR: required key $k missing from .env"
+                echo "ERROR: required key $k missing from PRODUCTION_ENV"
                 exit 1
               fi
             done
