@@ -65,14 +65,13 @@ jobs:
                 | sed 's/^POSTGRES_USER=/DB_USER=/; s/^POSTGRES_DB=/DB_NAME=/; s/^POSTGRES_PASSWORD=/DB_PASSWORD=/' \
                 >> "$RECOVERY" || true
 
-              # REDIS_PASSWORD: parse from redis container's command string
-              # The command looks like: redis-server --requirepass <pass> --maxmemory ...
-              REDIS_PASS=$(docker inspect kuurier-redis --format '{{range .Config.Cmd}}{{println .}}{{end}}' | grep -A1 requirepass | tail -1 || true)
-              if [ -z "$REDIS_PASS" ]; then
-                # Fallback: parse from REDIS_URL in api-blue
-                REDIS_URL=$(docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^REDIS_URL=' | cut -d= -f2-)
-                REDIS_PASS=$(echo "$REDIS_URL" | sed -n 's|redis://[^:]*:\([^@]*\)@.*|\1|p')
-              fi
+              # REDIS_PASSWORD: parse from REDIS_URL in api-blue
+              # Format: redis://<user>:<password>@<host>:<port>
+              REDIS_URL_RAW=$(docker inspect kuurier-api-blue --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^REDIS_URL=' | head -1 || true)
+              REDIS_URL="${REDIS_URL_RAW#REDIS_URL=}"
+              echo "REDIS_URL found: ${REDIS_URL:+yes (length=${#REDIS_URL})}${REDIS_URL:-no}"
+              REDIS_PASS=$(echo "$REDIS_URL" | sed -n 's|^redis://[^:]*:\([^@]*\)@.*|\1|p')
+              echo "REDIS_PASSWORD extracted: ${REDIS_PASS:+yes}${REDIS_PASS:-no}"
               if [ -n "$REDIS_PASS" ]; then
                 echo "REDIS_PASSWORD=$REDIS_PASS" >> "$RECOVERY"
               fi
